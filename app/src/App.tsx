@@ -1,28 +1,33 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Assessment } from './components/Assessment'
 import { Onboarding } from './components/Onboarding'
-import { Today, type FinishData } from './components/Today'
+import { Today, type Alternative, type FinishData, type WeekDay } from './components/Today'
 import { CONSENT_VERSION } from './config'
-import { demoSession } from './data/demoSession'
+import { available, CATALOG } from './data/catalog'
 import { db } from './lib/db'
+import { generatePlan } from './lib/generator'
+import { adviseLoad, type HistoryEntry } from './lib/loads'
 import { epley1RM, fmtKg } from './lib/progression'
 import { supabase } from './lib/supabase'
 import { syncOutbox } from './lib/sync'
-import type { AssessmentPayload } from './lib/types'
+import type { AssessmentPayload, Plan, PlannedSession, Prescription } from './lib/types'
 
 type Stage = 'loading' | 'onboarding' | 'assessment' | 'today' | 'summary'
-type LocalAssessment = { level: string; parqFlag: boolean; takenAt: string }
 type Summary = { minutes: number; sets: number; volume: number; best: { name: string; kg: number }[] }
 
 const LOCAL_ALIAS = 'emb.alias'
 const LOCAL_AGE = 'emb.age'
 const LOCAL_ASSESSMENT = 'emb.assessment'
+const LOCAL_SWAPS = 'emb.swaps'
 
-function readAssessment(): LocalAssessment | null {
+const todayIso = () => new Date().toLocaleDateString('sv-SE')
+const byId = new Map(CATALOG.map((e) => [e.id, e]))
+
+function readJson<T>(key: string, fallback: T): T {
   try {
-    return JSON.parse(localStorage.getItem(LOCAL_ASSESSMENT) ?? 'null')
+    return JSON.parse(localStorage.getItem(key) ?? 'null') ?? fallback
   } catch {
-    return null
+    return fallback
   }
 }
 
@@ -30,6 +35,16 @@ function explain(msg: string) {
   if (/anonymous.*disabled/i.test(msg)) return 'L’inici de sessió anònim no està activat a Supabase.'
   if (/fetch|network/i.test(msg)) return 'Sense connexió. Pots continuar i se sincronitzarà més tard.'
   return msg
+}
+
+// Substitueix un exercici per un altre adaptant el tipus de registre
+function swapExercise(p: Prescription, toId: string): Prescription {
+  const e = byId.get(toId)
+  if (!e) return p
+  let q: Prescription = { ...p, exercise: { id: e.id, name: e.name, cue: e.cue }, track: e.track }
+  if (e.track === 'time' && p.track !== 'time') q = { ...q, durationS: 30, repsMin: undefined, repsMax: undefined, rirTarget: undefined }
+  if (e.track !== 'time' && p.track === 'time') q = { ...q, durationS: undefined, repsMin: 8, repsMax: 12, rirTarget: 2 }
+  return q
 }
 
 export default function App() {
@@ -41,7 +56,11 @@ export default function App() {
   const [pending, setPending] = useState(0)
   const [syncError, setSyncError] = useState<string | undefined>()
   const [summary, setSummary] = useState<Summary | null>(null)
-  const [assessment, setAssessment] = useState<LocalAssessment | null>(readAssessment)
+  const [plan, setPlan] = useState<Plan | null>(null)
+  const [done, setDone] = useState<Set<string>>(new Set())
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [swaps, setSwaps] = useState<Record<string, string>>(() => readJson(LOCAL_SWAPS, {}))
+  const [sessionSwaps, setSessionSwaps] = useState<Record<string, string>>({})
   const ageRange = localStorage.getItem(LOCAL_AGE)
 
   const runSync = useCallback(async () => {
@@ -52,17 +71,23 @@ export default function App() {
 
   useEffect(() => {
     ;(async () => {
-      const { data } = await supabase.auth.getSession()
+      const [{ data }, lastPlan, doneRows, hist, count] = await Promise.all([
+        supabase.auth.getSession(),
+        db.plans.orderBy('createdAt').last(),
+        db.done.toArray(),
+        db.history.toArray(),
+        db.outbox.count(),
+      ])
+      setPlan(lastPlan ?? null)
+      setDone(new Set(doneRows.map((d) => d.plannedSessionId)))
+      setHistory(hist)
+      setPending(count)
       const local = localStorage.getItem(LOCAL_ALIAS)
-      setPending(await db.outbox.count())
-      if (data.session && local) {
-        setCloud(true)
+      if (local) {
         setAlias(local)
+        setCloud(!!data.session)
         setStage('today')
-        runSync()
-      } else if (local) {
-        setAlias(local)
-        setStage('today')
+        if (data.session) runSync()
       } else {
         setStage('onboarding')
       }
@@ -72,7 +97,7 @@ export default function App() {
     return () => window.removeEventListener('online', onOnline)
   }, [runSync])
 
-  const createAccount = async (name: string, ageRange: string | null): Promise<boolean> => {
+  const createAccount = async (name: string, age: string | null): Promise<boolean> => {
     setBusy(true)
     setError(null)
     try {
@@ -81,15 +106,15 @@ export default function App() {
       const { error: e2 } = await supabase.from('profiles').upsert({
         user_id: data.user.id,
         alias: name,
-        age_range: ageRange,
+        age_range: age,
         consent_version: CONSENT_VERSION,
       })
       if (e2) throw new Error(e2.message)
       localStorage.setItem(LOCAL_ALIAS, name)
-      if (ageRange) localStorage.setItem(LOCAL_AGE, ageRange)
+      if (age) localStorage.setItem(LOCAL_AGE, age)
       setAlias(name)
       setCloud(true)
-      setStage(readAssessment() ? 'today' : 'assessment')
+      setStage(plan ? 'today' : 'assessment')
       runSync()
       return true
     } catch (err) {
@@ -105,20 +130,102 @@ export default function App() {
     if (age) localStorage.setItem(LOCAL_AGE, age)
     setAlias(name)
     setCloud(false)
-    setStage(readAssessment() ? 'today' : 'assessment')
+    setStage(plan ? 'today' : 'assessment')
   }
 
   const saveAssessment = async (payload: AssessmentPayload, s: { level: string; parqFlag: boolean }) => {
-    await db.outbox.put({ id: payload.assessment.id, kind: 'assessment', payload, createdAt: payload.assessment.taken_at })
-    const local: LocalAssessment = { level: s.level, parqFlag: s.parqFlag, takenAt: payload.assessment.taken_at }
-    localStorage.setItem(LOCAL_ASSESSMENT, JSON.stringify(local))
-    setAssessment(local)
+    const takenAt = payload.assessment.taken_at
+    await db.outbox.put({ id: payload.assessment.id, kind: 'assessment', payload, createdAt: takenAt })
+    localStorage.setItem(LOCAL_ASSESSMENT, JSON.stringify({ level: s.level, parqFlag: s.parqFlag, takenAt }))
+
+    const newPlan = generatePlan({
+      level: payload.profile.level as Plan['inputs']['level'],
+      goals: payload.goals,
+      days: payload.profile.days_per_week,
+      minutes: payload.profile.minutes_per_session,
+      equipment: payload.profile.equipment,
+      ageRange,
+      parqFlag: s.parqFlag,
+      results: payload.assessment.results,
+      startDate: todayIso(),
+    })
+    await db.plans.put(newPlan)
+    // El pla es puja després de la valoració (els objectius han d'existir abans)
+    await db.outbox.put({ id: newPlan.id, kind: 'plan', payload: newPlan, createdAt: new Date(Date.parse(takenAt) + 1).toISOString() })
+    setPlan(newPlan)
+    setSessionSwaps({})
     setStage('today')
     if (cloud) runSync()
     else setPending(await db.outbox.count())
   }
 
+  // Sessió que toca: la primera del pla que encara no s'ha fet
+  const next = useMemo(
+    () => (plan ? [...plan.sessions].sort((a, b) => a.order - b.order).find((s) => !done.has(s.id)) ?? null : null),
+    [plan, done],
+  )
+
+  // Aplica substitucions d'exercicis i càrregues suggerides
+  const prepared = useMemo((): { session: PlannedSession; advice: Record<string, string> } | null => {
+    if (!next || !plan) return null
+    const advice: Record<string, string> = {}
+    const prescriptions = next.prescriptions.map((p0) => {
+      let p = p0
+      let guard = 0
+      while (swaps[p.exercise.id] && guard++ < 5) p = swapExercise(p, swaps[p.exercise.id])
+      if (sessionSwaps[p0.id]) p = swapExercise(p, sessionSwaps[p0.id])
+      const a = adviseLoad(p, history, { beginner: plan.inputs.level === 'principiant', deload: next.deload })
+      if (a) {
+        advice[p.id] = a.reason
+        p = { ...p, loadKg: a.loadKg }
+      } else if (p.track === 'load_reps') {
+        // Sense historial: barra buida, o una càrrega lleugera de manuella o màquina
+        const needs = byId.get(p.exercise.id)?.needs ?? []
+        p = { ...p, startKg: needs.includes('barra') ? 20 : needs.includes('politja') ? 15 : 6 }
+      }
+      return p
+    })
+    return { session: { ...next, prescriptions }, advice }
+  }, [next, plan, swaps, sessionSwaps, history])
+
+  const week: WeekDay[] = useMemo(() => {
+    if (!plan || !next) return []
+    return plan.sessions
+      .filter((s) => s.week === next.week)
+      .sort((a, b) => a.order - b.order)
+      .map((s) => ({ id: s.id, date: s.date, title: s.title, state: done.has(s.id) ? 'fet' : s.id === next.id ? 'actual' : 'pendent' }))
+  }, [plan, next, done])
+
+  const alternatives = useCallback(
+    (p: Prescription): Alternative[] => {
+      const cur = byId.get(p.exercise.id)
+      if (!cur || !plan) return []
+      return CATALOG.filter(
+        (e) =>
+          e.id !== cur.id &&
+          e.modality === cur.modality &&
+          (cur.modality === 'forca' || cur.modality === 'cardio' ? e.pattern === cur.pattern : true) &&
+          (e.target === 'equilibri') === (cur.target === 'equilibri') &&
+          available(e, plan.inputs.equipment, plan.inputs.level),
+      ).map((e) => ({ id: e.id, name: e.name }))
+    },
+    [plan],
+  )
+
+  const onSwap = (p: Prescription, toId: string, permanent: boolean) => {
+    if (permanent) {
+      const nextSwaps = { ...swaps, [p.exercise.id]: toId }
+      delete nextSwaps[toId] // evita cicles
+      setSwaps(nextSwaps)
+      localStorage.setItem(LOCAL_SWAPS, JSON.stringify(nextSwaps))
+    } else {
+      setSessionSwaps({ ...sessionSwaps, [p.id]: toId })
+    }
+  }
+
   const finish = async ({ draft, sessionRpe, feeling, notes }: FinishData) => {
+    if (!prepared) return
+    const s = prepared.session
     const ended = new Date()
     await db.outbox.put({
       id: draft.id,
@@ -127,6 +234,7 @@ export default function App() {
       payload: {
         session: {
           id: draft.id,
+          planned_session_id: s.id,
           started_at: draft.startedAt,
           ended_at: ended.toISOString(),
           session_rpe: sessionRpe,
@@ -136,20 +244,41 @@ export default function App() {
         sets: draft.sets,
       },
     })
+    const rxById = new Map(s.prescriptions.map((p) => [p.id, p]))
+    const entries: HistoryEntry[] = draft.sets.map((x) => {
+      const p = rxById.get(x.prescriptionId)
+      return {
+        id: x.id,
+        exerciseId: x.exerciseId,
+        sessionLogId: draft.id,
+        date: x.completedAt,
+        deload: s.deload,
+        repsMin: p?.repsMin,
+        repsMax: p?.repsMax,
+        rirTarget: p?.rirTarget,
+        loadKg: x.loadKg,
+        reps: x.reps,
+        rir: x.rir,
+        durationS: x.durationS,
+      }
+    })
+    await db.history.bulkPut(entries)
+    await db.done.put({ plannedSessionId: s.id, sessionLogId: draft.id, date: ended.toISOString() })
     await db.drafts.delete(draft.id)
+    setHistory([...history, ...entries])
+    setDone(new Set([...done, s.id]))
+    setSessionSwaps({})
 
     const byEx = new Map<string, number>()
-    for (const s of draft.sets) {
-      const e = epley1RM(s.loadKg ?? 0, s.reps ?? 0)
-      if (e) byEx.set(s.exerciseId, Math.max(byEx.get(s.exerciseId) ?? 0, e))
+    for (const x of draft.sets) {
+      const e = epley1RM(x.loadKg ?? 0, x.reps ?? 0)
+      if (e) byEx.set(x.exerciseId, Math.max(byEx.get(x.exerciseId) ?? 0, e))
     }
     setSummary({
       minutes: Math.max(1, Math.round((ended.getTime() - Date.parse(draft.startedAt)) / 60000)),
       sets: draft.sets.length,
-      volume: Math.round(draft.sets.reduce((a, s) => a + (s.loadKg ?? 0) * (s.reps ?? 0), 0)),
-      best: demoSession.prescriptions
-        .filter((p) => byEx.has(p.exercise.id))
-        .map((p) => ({ name: p.exercise.name, kg: byEx.get(p.exercise.id)! })),
+      volume: Math.round(draft.sets.reduce((a, x) => a + (x.loadKg ?? 0) * (x.reps ?? 0), 0)),
+      best: [...byEx].map(([id, kg]) => ({ name: byId.get(id)?.name ?? '', kg })),
     })
     setStage('summary')
     if (cloud) runSync()
@@ -163,6 +292,13 @@ export default function App() {
         ? 'Error de sincronització'
         : `${pending} pendent${pending > 1 ? 's' : ''}`
       : 'Sincronitzat'
+
+  const activateCloud = cloud
+    ? undefined
+    : () =>
+        createAccount(alias, ageRange).then((ok) => {
+          if (!ok) alert('Encara no s’ha pogut activar el núvol. Les dades es mantenen al mòbil.')
+        })
 
   if (stage === 'loading') return <main className="screen" aria-busy="true" />
 
@@ -210,6 +346,7 @@ export default function App() {
             </ul>
           </section>
         )}
+        {next && <p className="muted center">Propera sessió: {next.title}</p>}
         <p className="muted center">
           {cloud
             ? pending > 0
@@ -223,22 +360,46 @@ export default function App() {
       </main>
     )
 
+  if (!plan || !prepared)
+    return (
+      <main className="screen today">
+        <header className="today-head">
+          <div>
+            <p className="kicker">Embranzida</p>
+            <h1>Hola, {alias}</h1>
+          </div>
+          <div className="head-side">
+            {activateCloud ? (
+              <button type="button" className="sync-chip action" onClick={activateCloud}>
+                {syncLabel} · Activa el núvol
+              </button>
+            ) : (
+              <span className="sync-chip">{syncLabel}</span>
+            )}
+          </div>
+        </header>
+        <button type="button" className="assess-card" onClick={() => setStage('assessment')}>
+          <strong>{plan ? 'Has completat el pla de 12 setmanes!' : 'Fes la valoració inicial'}</strong>
+          <span>
+            {plan
+              ? 'Repeteix la valoració per veure el teu progrés i generar el pla següent.'
+              : 'Uns minuts de preguntes i tests per generar el teu pla de 12 setmanes.'}
+          </span>
+        </button>
+      </main>
+    )
+
   return (
     <Today
-      key={summary ? 'after' : 'first'}
-      session={demoSession}
+      key={prepared.session.id}
+      session={prepared.session}
+      advice={prepared.advice}
+      week={week}
       alias={alias}
       syncLabel={syncLabel}
-      assessed={assessment !== null}
-      onAssess={() => setStage('assessment')}
-      onChipClick={
-        cloud
-          ? undefined
-          : () =>
-              createAccount(alias, ageRange).then((ok) => {
-                if (!ok) alert('Encara no s’ha pogut activar el núvol. Les dades es mantenen al mòbil.')
-              })
-      }
+      onChipClick={activateCloud}
+      alternatives={alternatives}
+      onSwap={onSwap}
       onFinish={finish}
     />
   )

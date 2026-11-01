@@ -24,10 +24,11 @@ En desenvolupament. Primera fita: MVP per a un grup reduït d'usuaris.
 app/                 App React + TypeScript (PWA)
   src/components/    Pantalles: alta, entrenament d'avui, temporitzador
   src/lib/           Supabase, base de dades local, sincronització, progressió
-  src/data/          Sessió de mostra (provisional)
+  src/data/          Biblioteca d'exercicis (exercises.json, font única)
+  scripts/           Generador de supabase/seed.sql
 supabase/
   schema.sql         Esquema de base de dades i polítiques de seguretat
-  seed.sql           Biblioteca inicial d'exercicis (provisional)
+  seed.sql           Biblioteca d'exercicis (generat amb `npm run seed`)
 ```
 
 ## Desenvolupament
@@ -38,6 +39,7 @@ npm install
 npm run dev      # servidor local
 npm test         # proves de la lògica de progressió
 npm run build    # versió de producció a app/dist
+npm run seed     # regenera supabase/seed.sql després d'editar exercises.json
 ```
 
 ## Publicar a Cloudflare Pages

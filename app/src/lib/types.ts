@@ -4,16 +4,24 @@ export type Exercise = {
   cue: string // indicació tècnica breu
 }
 
+export type Block = 'escalfament' | 'principal' | 'calma'
+export type Track = 'load_reps' | 'reps' | 'time'
+
 export type Prescription = {
   id: string
   exercise: Exercise
+  block: Block
+  track: Track
   sets: number
   repsMin?: number
   repsMax?: number
-  loadKg?: number
   durationS?: number
+  hrZone?: number
   rirTarget?: number
   restS: number
+  loadKg?: number // calculada en temps d'execució a partir de l'historial
+  startKg?: number // càrrega inicial orientativa quan no hi ha historial
+  note?: string
 }
 
 export type PlannedSession = {
@@ -22,6 +30,33 @@ export type PlannedSession = {
   kind: 'forca' | 'cardio' | 'mobilitat' | 'flexibilitat' | 'mixta'
   focus: string
   prescriptions: Prescription[]
+  week: number
+  mesocycle: number
+  deload: boolean
+  date: string // YYYY-MM-DD
+  order: number
+}
+
+export type GeneratorInputs = {
+  level: 'principiant' | 'intermedi' | 'avancat'
+  goals: { id: string; type: GoalType; priority: number }[]
+  days: number
+  minutes: number
+  equipment: string[]
+  ageRange: string | null
+  parqFlag: boolean
+  results?: Record<string, unknown>
+  startDate: string
+}
+
+export type Plan = {
+  id: string
+  createdAt: string
+  startDate: string
+  weeks: number
+  inputs: GeneratorInputs
+  mesocycles: { id: string; position: number; phase: 'acumulacio' | 'intensificacio' | 'realitzacio'; weeks: number }[]
+  sessions: PlannedSession[]
 }
 
 export type SetLog = {
@@ -46,6 +81,7 @@ export type SessionDraft = {
 export type SessionPayload = {
   session: {
     id: string
+    planned_session_id?: string | null
     started_at: string
     ended_at: string
     session_rpe: number | null
@@ -77,5 +113,6 @@ export type AssessmentPayload = {
 }
 
 export type OutboxItem =
+  | { id: string; kind: 'plan'; payload: Plan; createdAt: string; lastError?: string }
   | { id: string; kind: 'session'; payload: SessionPayload; createdAt: string; lastError?: string }
   | { id: string; kind: 'assessment'; payload: AssessmentPayload; createdAt: string; lastError?: string }

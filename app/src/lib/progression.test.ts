@@ -5,6 +5,8 @@ import type { Prescription, SetLog } from './types'
 const p: Prescription = {
   id: 'p1',
   exercise: { id: 'e1', name: 'Sentadilla', cue: '' },
+  block: 'principal',
+  track: 'load_reps',
   sets: 3, repsMin: 6, repsMax: 8, loadKg: 60, rirTarget: 2, restS: 120,
 }
 const mk = (reps: number, rir: number, loadKg = 60): SetLog => ({
@@ -23,6 +25,9 @@ describe('suggestNext', () => {
   it('puja càrrega si totes les sèries arriben al màxim amb el RIR objectiu', () => {
     const s = suggestNext(p, [mk(8, 2), mk(8, 2), mk(8, 3)])
     expect(s).toMatchObject({ kind: 'pujar', nextLoadKg: 62.5 })
+  })
+  it('massa fàcil (RIR 2 per sobre) → puja un 5 %', () => {
+    expect(suggestNext(p, [mk(10, 4), mk(10, 4), mk(9, 4)])).toMatchObject({ kind: 'pujar', nextLoadKg: 62.5 })
   })
   it('manté si falta esforç de reserva', () => {
     expect(suggestNext(p, [mk(8, 1), mk(8, 2), mk(8, 2)])?.kind).toBe('mantenir')
