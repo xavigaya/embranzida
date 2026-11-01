@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { db } from '../lib/db'
 import { epley1RM, fmtKg, suggestNext } from '../lib/progression'
 import type { Block, PlannedSession, Prescription, SessionDraft, SetLog } from '../lib/types'
@@ -25,6 +25,8 @@ type Props = {
   alternatives: (p: Prescription) => Alternative[]
   onSwap: (p: Prescription, toId: string, permanent: boolean) => void
   onFinish: (data: FinishData) => void
+  topSlot?: ReactNode
+  notice?: string | null
 }
 
 type Entry = { load: number; reps: number; rir: number; duration: number }
@@ -82,7 +84,7 @@ function useWakeLock(active: boolean) {
   }, [active])
 }
 
-export function Today({ session, advice, week, alias, syncLabel, onChipClick, alternatives, onSwap, onFinish }: Props) {
+export function Today({ session, advice, week, alias, syncLabel, onChipClick, alternatives, onSwap, onFinish, topSlot, notice }: Props) {
   const [draft, setDraft] = useState<SessionDraft | null>(null)
   const [activeId, setActiveId] = useState<string>(session.prescriptions[0]?.id)
   const [entry, setEntry] = useState<Entry>({ load: 0, reps: 0, rir: 2, duration: 0 })
@@ -217,7 +219,10 @@ export function Today({ session, advice, week, alias, syncLabel, onChipClick, al
         ))}
       </ol>
 
+      {topSlot}
+
       {dateNote && <p className="date-note">{dateNote}. La pots fer ara.</p>}
+      {notice && <p className="date-note">{notice}</p>}
       {session.deload && (
         <p className="date-note deload">Setmana de descàrrega: menys sèries i càrregues una mica més baixes per recuperar.</p>
       )}

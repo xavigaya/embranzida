@@ -1,16 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Account } from './components/Account'
 import { Assessment } from './components/Assessment'
+import { DailyCheck } from './components/DailyCheck'
+import { Progress } from './components/Progress'
+import { TabBar, type Tab } from './components/TabBar'
 import { Onboarding } from './components/Onboarding'
 import { Today, type Alternative, type FinishData, type WeekDay } from './components/Today'
 import { CONSENT_VERSION } from './config'
 import { available, CATALOG } from './data/catalog'
-import { db } from './lib/db'
+import { db, type DoneRow } from './lib/db'
+import { fatigueFlag, reducedSets } from './lib/fatigue'
+import { LEVEL_LABEL } from './lib/level'
 import { generatePlan } from './lib/generator'
 import { adviseLoad, type HistoryEntry } from './lib/loads'
 import { epley1RM, fmtKg } from './lib/progression'
 import { supabase } from './lib/supabase'
 import { syncOutbox } from './lib/sync'
-import type { AssessmentPayload, Plan, PlannedSession, Prescription } from './lib/types'
+import type { AssessmentPayload, DailyStatus, Measurement, Plan, PlannedSession, Prescription } from './lib/types'
 
 type Stage = 'loading' | 'onboarding' | 'assessment' | 'today' | 'summary'
 type Summary = { minutes: number; sets: number; volume: number; best: { name: string; kg: number }[] }
@@ -57,7 +63,12 @@ export default function App() {
   const [syncError, setSyncError] = useState<string | undefined>()
   const [summary, setSummary] = useState<Summary | null>(null)
   const [plan, setPlan] = useState<Plan | null>(null)
-  const [done, setDone] = useState<Set<string>>(new Set())
+  const [doneRows, setDoneRows] = useState<DoneRow[]>([])
+  const done = useMemo(() => new Set(doneRows.map((d) => d.plannedSessionId)), [doneRows])
+  const [daily, setDaily] = useState<DailyStatus[]>([])
+  const [measurements, setMeasurements] = useState<Measurement[]>([])
+  const [dailySkipped, setDailySkipped] = useState(false)
+  const [tab, setTab] = useState<Tab>('avui')
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [swaps, setSwaps] = useState<Record<string, string>>(() => readJson(LOCAL_SWAPS, {}))
   const [sessionSwaps, setSessionSwaps] = useState<Record<string, string>>({})
@@ -71,15 +82,19 @@ export default function App() {
 
   useEffect(() => {
     ;(async () => {
-      const [{ data }, lastPlan, doneRows, hist, count] = await Promise.all([
+      const [{ data }, lastPlan, rows, hist, count, dailyRows, meas] = await Promise.all([
         supabase.auth.getSession(),
         db.plans.orderBy('createdAt').last(),
         db.done.toArray(),
         db.history.toArray(),
         db.outbox.count(),
+        db.daily.toArray(),
+        db.measurements.toArray(),
       ])
       setPlan(lastPlan ?? null)
-      setDone(new Set(doneRows.map((d) => d.plannedSessionId)))
+      setDoneRows(rows)
+      setDaily(dailyRows)
+      setMeasurements(meas)
       setHistory(hist)
       setPending(count)
       const local = localStorage.getItem(LOCAL_ALIAS)
@@ -133,6 +148,26 @@ export default function App() {
     setStage(plan ? 'today' : 'assessment')
   }
 
+  const afterLocalSave = async () => {
+    if (cloud) runSync()
+    else setPending(await db.outbox.count())
+  }
+
+  const saveDaily = async (d: DailyStatus) => {
+    await db.daily.put(d)
+    await db.outbox.put({ id: `daily-${d.day}`, kind: 'daily', payload: d, createdAt: new Date().toISOString() })
+    setDaily([...daily.filter((x) => x.day !== d.day), d])
+    afterLocalSave()
+  }
+
+  const addMeasurement = async (m: { weight_kg?: number; waist_cm?: number; hip_cm?: number }, when?: string) => {
+    const row: Measurement = { id: crypto.randomUUID(), measured_at: when ?? new Date().toISOString(), ...m }
+    await db.measurements.put(row)
+    await db.outbox.put({ id: row.id, kind: 'measurement', payload: row, createdAt: new Date(Date.parse(row.measured_at) + 2).toISOString() })
+    setMeasurements((prev) => [...prev, row])
+    afterLocalSave()
+  }
+
   const saveAssessment = async (payload: AssessmentPayload, s: { level: string; parqFlag: boolean }) => {
     const takenAt = payload.assessment.taken_at
     await db.outbox.put({ id: payload.assessment.id, kind: 'assessment', payload, createdAt: takenAt })
@@ -154,6 +189,10 @@ export default function App() {
     await db.outbox.put({ id: newPlan.id, kind: 'plan', payload: newPlan, createdAt: new Date(Date.parse(takenAt) + 1).toISOString() })
     setPlan(newPlan)
     setSessionSwaps({})
+    const r = payload.assessment.results as Record<string, number | undefined>
+    if (r.weightKg != null || r.waistCm != null || r.hipCm != null)
+      await addMeasurement({ weight_kg: r.weightKg, waist_cm: r.waistCm, hip_cm: r.hipCm }, takenAt)
+    setTab('avui')
     setStage('today')
     if (cloud) runSync()
     else setPending(await db.outbox.count())
@@ -165,15 +204,23 @@ export default function App() {
     [plan, done],
   )
 
-  // Aplica substitucions d'exercicis i càrregues suggerides
+  // Regla R05: fatiga acumulada segons l'estat diari i l'esforç de les últimes sessions
+  const fatigue = useMemo(() => {
+    const rpes = [...doneRows].sort((a, b) => a.date.localeCompare(b.date)).map((d) => d.rpe)
+    return fatigueFlag(daily, rpes, todayIso())
+  }, [daily, doneRows])
+
+  // Aplica substitucions d'exercicis, reducció per fatiga i càrregues suggerides
   const prepared = useMemo((): { session: PlannedSession; advice: Record<string, string> } | null => {
     if (!next || !plan) return null
+    const reduce = !!fatigue && !next.deload
     const advice: Record<string, string> = {}
     const prescriptions = next.prescriptions.map((p0) => {
       let p = p0
       let guard = 0
       while (swaps[p.exercise.id] && guard++ < 5) p = swapExercise(p, swaps[p.exercise.id])
       if (sessionSwaps[p0.id]) p = swapExercise(p, sessionSwaps[p0.id])
+      if (reduce && p.block === 'principal') p = { ...p, sets: reducedSets(p.sets) }
       const a = adviseLoad(p, history, { beginner: plan.inputs.level === 'principiant', deload: next.deload })
       if (a) {
         advice[p.id] = a.reason
@@ -186,7 +233,7 @@ export default function App() {
       return p
     })
     return { session: { ...next, prescriptions }, advice }
-  }, [next, plan, swaps, sessionSwaps, history])
+  }, [next, plan, swaps, sessionSwaps, history, fatigue])
 
   const week: WeekDay[] = useMemo(() => {
     if (!plan || !next) return []
@@ -263,10 +310,11 @@ export default function App() {
       }
     })
     await db.history.bulkPut(entries)
-    await db.done.put({ plannedSessionId: s.id, sessionLogId: draft.id, date: ended.toISOString() })
+    const doneRow: DoneRow = { plannedSessionId: s.id, sessionLogId: draft.id, date: ended.toISOString(), rpe: sessionRpe }
+    await db.done.put(doneRow)
     await db.drafts.delete(draft.id)
     setHistory([...history, ...entries])
-    setDone(new Set([...done, s.id]))
+    setDoneRows([...doneRows, doneRow])
     setSessionSwaps({})
 
     const byEx = new Map<string, number>()
@@ -360,8 +408,30 @@ export default function App() {
       </main>
     )
 
-  if (!plan || !prepared)
-    return (
+  const dailyCard =
+    !dailySkipped && !daily.some((d) => d.day === todayIso()) ? (
+      <DailyCheck day={todayIso()} onSave={saveDaily} onSkip={() => setDailySkipped(true)} />
+    ) : null
+
+  let screen: ReactNode
+  if (tab === 'progres') {
+    screen = <Progress plan={plan} done={doneRows} history={history} measurements={measurements} onAddMeasurement={addMeasurement} />
+  } else if (tab === 'compte') {
+    screen = (
+      <Account
+        alias={alias}
+        cloud={cloud}
+        syncLabel={syncLabel}
+        pending={pending}
+        syncError={syncError}
+        levelLabel={plan ? LEVEL_LABEL[plan.inputs.level] : null}
+        onRetrySync={runSync}
+        onActivateCloud={activateCloud}
+        onReassess={() => setStage('assessment')}
+      />
+    )
+  } else if (!plan || !prepared) {
+    screen = (
       <main className="screen today">
         <header className="today-head">
           <div>
@@ -388,19 +458,29 @@ export default function App() {
         </button>
       </main>
     )
+  } else {
+    screen = (
+      <Today
+        key={prepared.session.id}
+        session={prepared.session}
+        advice={prepared.advice}
+        week={week}
+        alias={alias}
+        syncLabel={syncLabel}
+        onChipClick={activateCloud}
+        alternatives={alternatives}
+        onSwap={onSwap}
+        onFinish={finish}
+        topSlot={dailyCard}
+        notice={fatigue && !prepared.session.deload ? `${fatigue}: avui farem un 25 % menys de sèries a la part principal.` : null}
+      />
+    )
+  }
 
   return (
-    <Today
-      key={prepared.session.id}
-      session={prepared.session}
-      advice={prepared.advice}
-      week={week}
-      alias={alias}
-      syncLabel={syncLabel}
-      onChipClick={activateCloud}
-      alternatives={alternatives}
-      onSwap={onSwap}
-      onFinish={finish}
-    />
+    <>
+      {screen}
+      <TabBar tab={tab} onChange={(t) => (setTab(t), window.scrollTo(0, 0))} />
+    </>
   )
 }

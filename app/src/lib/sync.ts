@@ -1,6 +1,6 @@
 import { db } from './db'
 import { supabase } from './supabase'
-import type { AssessmentPayload, OutboxItem, Plan, SessionPayload } from './types'
+import type { AssessmentPayload, DailyStatus, Measurement, OutboxItem, Plan, SessionPayload } from './types'
 
 const isUuid = (v?: string | null) => !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
 const chunks = <T,>(a: T[], n = 200) => Array.from({ length: Math.ceil(a.length / n) }, (_, k) => a.slice(k * n, k * n + n))
@@ -129,6 +129,16 @@ async function pushPlan(userId: string, plan: Plan) {
   return null
 }
 
+async function pushDaily(userId: string, d: DailyStatus) {
+  const { error } = await supabase.from('daily_status').upsert({ ...d, user_id: userId })
+  return error?.message ?? null
+}
+
+async function pushMeasurement(userId: string, m: Measurement) {
+  const { error } = await supabase.from('body_measurements').upsert({ ...m, user_id: userId })
+  return error?.message ?? null
+}
+
 // Puja al núvol tot el que hi ha pendent. Idempotent: fa servir upsert
 // amb els UUID generats al mòbil, de manera que repetir-ho no duplica res.
 export async function syncOutbox(): Promise<{ pending: number; error?: string }> {
@@ -147,7 +157,11 @@ export async function syncOutbox(): Promise<{ pending: number; error?: string }>
           ? await pushAssessment(userId, item.payload)
           : item.kind === 'plan'
             ? await pushPlan(userId, item.payload)
-            : await pushSession(userId, item.payload)
+            : item.kind === 'daily'
+              ? await pushDaily(userId, item.payload)
+              : item.kind === 'measurement'
+                ? await pushMeasurement(userId, item.payload)
+                : await pushSession(userId, item.payload)
       if (err) {
         await db.outbox.update(item.id, { lastError: err })
         return { pending: items.length, error: err }

@@ -1,0 +1,142 @@
+import { useState } from 'react'
+import { collectAllData, deleteEverything, download, historyCsv } from '../lib/account'
+
+type Props = {
+  alias: string
+  cloud: boolean
+  syncLabel: string
+  pending: number
+  syncError?: string
+  levelLabel: string | null
+  onRetrySync: () => void
+  onActivateCloud?: () => void
+  onReassess: () => void
+}
+
+export function Account({ alias, cloud, syncLabel, pending, syncError, levelLabel, onRetrySync, onActivateCloud, onReassess }: Props) {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [typed, setTyped] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const stamp = new Date().toLocaleDateString('sv-SE')
+
+  const exportJson = async () => {
+    setBusy('json')
+    try {
+      const data = await collectAllData()
+      download(`embranzida-dades-${stamp}.json`, JSON.stringify(data, null, 2), 'application/json')
+    } finally {
+      setBusy(null)
+    }
+  }
+  const exportCsv = async () => {
+    setBusy('csv')
+    try {
+      download(`embranzida-series-${stamp}.csv`, await historyCsv(), 'text/csv;charset=utf-8')
+    } finally {
+      setBusy(null)
+    }
+  }
+  const remove = async () => {
+    setBusy('del')
+    setError(null)
+    const err = await deleteEverything()
+    if (err) {
+      setError(`No s’ha pogut esborrar el compte del núvol: ${err}. Torna-ho a provar amb connexió.`)
+      setBusy(null)
+      return
+    }
+    location.reload()
+  }
+
+  return (
+    <main className="screen account">
+      <header>
+        <p className="kicker">El meu compte</p>
+        <h1>{alias}</h1>
+        {levelLabel && <p className="muted">Nivell: {levelLabel}</p>}
+      </header>
+
+      <section className="card stack-sm">
+        <h2>Sincronització</h2>
+        <p className="muted">
+          {!cloud
+            ? 'Les dades només es guarden en aquest mòbil.'
+            : pending > 0
+              ? `${pending} element${pending > 1 ? 's' : ''} pendent${pending > 1 ? 's' : ''} de pujar.`
+              : 'Tot està desat al núvol.'}
+        </p>
+        {syncError && <p className="error">{syncError}</p>}
+        {onActivateCloud ? (
+          <button type="button" className="btn primary block" onClick={onActivateCloud}>
+            Activa el núvol
+          </button>
+        ) : (
+          pending > 0 && (
+            <button type="button" className="btn ghost block" onClick={onRetrySync}>
+              Torna a sincronitzar ({syncLabel})
+            </button>
+          )
+        )}
+      </section>
+
+      <section className="card stack-sm">
+        <h2>El meu pla</h2>
+        <p className="muted">Repeteix la valoració per mesurar el progrés i generar un pla nou adaptat.</p>
+        <button type="button" className="btn ghost block" onClick={onReassess}>
+          Repeteix la valoració
+        </button>
+      </section>
+
+      <section className="card stack-sm">
+        <h2>Les meves dades</h2>
+        <p className="muted">
+          Les dades es guarden pseudonimitzades (sense nom real ni correu) en servidors de la UE. Les pots descarregar o
+          esborrar quan vulguis.
+        </p>
+        <button type="button" className="btn ghost block" onClick={exportJson} disabled={busy !== null}>
+          {busy === 'json' ? 'Preparant…' : 'Descarrega totes les dades (JSON)'}
+        </button>
+        <button type="button" className="btn ghost block" onClick={exportCsv} disabled={busy !== null}>
+          {busy === 'csv' ? 'Preparant…' : 'Descarrega l’historial de sèries (CSV)'}
+        </button>
+      </section>
+
+      <section className="card stack-sm danger">
+        <h2>Esborrar el compte</h2>
+        <p className="muted">
+          S’esborraran per sempre el compte, el pla, l’historial i totes les dades, del núvol i d’aquest mòbil. No es pot
+          desfer.
+        </p>
+        {!confirming ? (
+          <button type="button" className="btn danger-btn block" onClick={() => setConfirming(true)}>
+            Esborra el compte i les dades
+          </button>
+        ) : (
+          <>
+            <label className="field">
+              <span>
+                Escriu <strong>ESBORRA</strong> per confirmar
+              </span>
+              <input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
+            </label>
+            {error && <p className="error">{error}</p>}
+            <div className="overlay-actions">
+              <button type="button" className="btn ghost" onClick={() => setConfirming(false)}>
+                Cancel·la
+              </button>
+              <button
+                type="button"
+                className="btn danger-btn"
+                disabled={typed.trim().toUpperCase() !== 'ESBORRA' || busy !== null}
+                onClick={remove}
+              >
+                {busy === 'del' ? 'Esborrant…' : 'Esborra-ho tot'}
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+    </main>
+  )
+}

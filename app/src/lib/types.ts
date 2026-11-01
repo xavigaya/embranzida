@@ -112,7 +112,25 @@ export type AssessmentPayload = {
   }
 }
 
+export type DailyStatus = {
+  day: string // YYYY-MM-DD
+  sleep: number // 1 malament – 5 molt bé
+  fatigue: number // 1 gens – 5 molta
+  soreness: number // 1 gens – 5 molt
+  mood: number // 1 baix – 5 molt bo
+}
+
+export type Measurement = {
+  id: string
+  measured_at: string
+  weight_kg?: number | null
+  waist_cm?: number | null
+  hip_cm?: number | null
+}
+
 export type OutboxItem =
+  | { id: string; kind: 'daily'; payload: DailyStatus; createdAt: string; lastError?: string }
+  | { id: string; kind: 'measurement'; payload: Measurement; createdAt: string; lastError?: string }
   | { id: string; kind: 'plan'; payload: Plan; createdAt: string; lastError?: string }
   | { id: string; kind: 'session'; payload: SessionPayload; createdAt: string; lastError?: string }
   | { id: string; kind: 'assessment'; payload: AssessmentPayload; createdAt: string; lastError?: string }
