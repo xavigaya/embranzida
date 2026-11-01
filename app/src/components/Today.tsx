@@ -17,6 +17,8 @@ type Props = {
   alias: string
   syncLabel: string
   onChipClick?: () => void
+  assessed: boolean
+  onAssess: () => void
   onFinish: (data: FinishData) => void
 }
 
@@ -61,7 +63,7 @@ function useWakeLock(active: boolean) {
   }, [active])
 }
 
-export function Today({ session, alias, syncLabel, onChipClick, onFinish }: Props) {
+export function Today({ session, alias, syncLabel, onChipClick, assessed, onAssess, onFinish }: Props) {
   const [draft, setDraft] = useState<SessionDraft | null>(null)
   const [activeId, setActiveId] = useState<string>(session.prescriptions[0].id)
   const [entry, setEntry] = useState<Entry>({ load: 0, reps: 0, rir: 2, duration: 0 })
@@ -175,6 +177,13 @@ export function Today({ session, alias, syncLabel, onChipClick, onFinish }: Prop
           <span className="hello">Hola, {alias}</span>
         </div>
       </header>
+
+      {!assessed && (
+        <button type="button" className="assess-card" onClick={onAssess}>
+          <strong>Fes la valoració inicial</strong>
+          <span>Uns minuts de preguntes i tests perquè el pla s’adapti a tu.</span>
+        </button>
+      )}
 
       <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
         <div className="progress-bar" style={{ width: `${pct}%` }} />

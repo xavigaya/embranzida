@@ -14,6 +14,17 @@ class LocalDB extends Dexie {
       drafts: 'id, plannedSessionId',
       outbox: 'id, createdAt',
     })
+    // v2: la cua admet sessions i valoracions (camp kind)
+    this.version(2)
+      .stores({ drafts: 'id, plannedSessionId', outbox: 'id, createdAt' })
+      .upgrade((tx) =>
+        tx
+          .table('outbox')
+          .toCollection()
+          .modify((it: { kind?: string }) => {
+            if (!it.kind) it.kind = 'session'
+          }),
+      )
   }
 }
 

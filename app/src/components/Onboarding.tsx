@@ -4,7 +4,7 @@ type Props = {
   busy: boolean
   error: string | null
   onSubmit: (alias: string, ageRange: string | null) => void
-  onOffline: (alias: string) => void
+  onOffline: (alias: string, ageRange: string | null) => void
 }
 
 const AGES = ['18-29', '30-39', '40-49', '50-59', '60-69', '70+']
@@ -71,7 +71,7 @@ export function Onboarding({ busy, error, onSubmit, onOffline }: Props) {
           {busy ? 'Creant el compte…' : 'Comença'}
         </button>
         {error && (
-          <button type="button" className="btn ghost block" disabled={!ok} onClick={() => onOffline(alias.trim())}>
+          <button type="button" className="btn ghost block" disabled={!ok} onClick={() => onOffline(alias.trim(), age)}>
             Continua sense connexió
           </button>
         )}

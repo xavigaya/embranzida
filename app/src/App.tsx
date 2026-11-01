@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Assessment } from './components/Assessment'
 import { Onboarding } from './components/Onboarding'
 import { Today, type FinishData } from './components/Today'
 import { CONSENT_VERSION } from './config'
@@ -7,11 +8,23 @@ import { db } from './lib/db'
 import { epley1RM, fmtKg } from './lib/progression'
 import { supabase } from './lib/supabase'
 import { syncOutbox } from './lib/sync'
+import type { AssessmentPayload } from './lib/types'
 
-type Stage = 'loading' | 'onboarding' | 'today' | 'summary'
+type Stage = 'loading' | 'onboarding' | 'assessment' | 'today' | 'summary'
+type LocalAssessment = { level: string; parqFlag: boolean; takenAt: string }
 type Summary = { minutes: number; sets: number; volume: number; best: { name: string; kg: number }[] }
 
 const LOCAL_ALIAS = 'emb.alias'
+const LOCAL_AGE = 'emb.age'
+const LOCAL_ASSESSMENT = 'emb.assessment'
+
+function readAssessment(): LocalAssessment | null {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_ASSESSMENT) ?? 'null')
+  } catch {
+    return null
+  }
+}
 
 function explain(msg: string) {
   if (/anonymous.*disabled/i.test(msg)) return 'L’inici de sessió anònim no està activat a Supabase.'
@@ -28,6 +41,8 @@ export default function App() {
   const [pending, setPending] = useState(0)
   const [syncError, setSyncError] = useState<string | undefined>()
   const [summary, setSummary] = useState<Summary | null>(null)
+  const [assessment, setAssessment] = useState<LocalAssessment | null>(readAssessment)
+  const ageRange = localStorage.getItem(LOCAL_AGE)
 
   const runSync = useCallback(async () => {
     const r = await syncOutbox()
@@ -71,9 +86,10 @@ export default function App() {
       })
       if (e2) throw new Error(e2.message)
       localStorage.setItem(LOCAL_ALIAS, name)
+      if (ageRange) localStorage.setItem(LOCAL_AGE, ageRange)
       setAlias(name)
       setCloud(true)
-      setStage('today')
+      setStage(readAssessment() ? 'today' : 'assessment')
       runSync()
       return true
     } catch (err) {
@@ -84,17 +100,29 @@ export default function App() {
     }
   }
 
-  const goOffline = (name: string) => {
+  const goOffline = (name: string, age: string | null) => {
     localStorage.setItem(LOCAL_ALIAS, name)
+    if (age) localStorage.setItem(LOCAL_AGE, age)
     setAlias(name)
     setCloud(false)
+    setStage(readAssessment() ? 'today' : 'assessment')
+  }
+
+  const saveAssessment = async (payload: AssessmentPayload, s: { level: string; parqFlag: boolean }) => {
+    await db.outbox.put({ id: payload.assessment.id, kind: 'assessment', payload, createdAt: payload.assessment.taken_at })
+    const local: LocalAssessment = { level: s.level, parqFlag: s.parqFlag, takenAt: payload.assessment.taken_at }
+    localStorage.setItem(LOCAL_ASSESSMENT, JSON.stringify(local))
+    setAssessment(local)
     setStage('today')
+    if (cloud) runSync()
+    else setPending(await db.outbox.count())
   }
 
   const finish = async ({ draft, sessionRpe, feeling, notes }: FinishData) => {
     const ended = new Date()
     await db.outbox.put({
       id: draft.id,
+      kind: 'session',
       createdAt: ended.toISOString(),
       payload: {
         session: {
@@ -137,6 +165,9 @@ export default function App() {
       : 'Sincronitzat'
 
   if (stage === 'loading') return <main className="screen" aria-busy="true" />
+
+  if (stage === 'assessment')
+    return <Assessment ageRange={ageRange} onCancel={() => setStage('today')} onSave={saveAssessment} />
 
   if (stage === 'onboarding')
     return <Onboarding busy={busy} error={error} onSubmit={createAccount} onOffline={goOffline} />
@@ -198,11 +229,13 @@ export default function App() {
       session={demoSession}
       alias={alias}
       syncLabel={syncLabel}
+      assessed={assessment !== null}
+      onAssess={() => setStage('assessment')}
       onChipClick={
         cloud
           ? undefined
           : () =>
-              createAccount(alias, null).then((ok) => {
+              createAccount(alias, ageRange).then((ok) => {
                 if (!ok) alert('Encara no s’ha pogut activar el núvol. Les dades es mantenen al mòbil.')
               })
       }
