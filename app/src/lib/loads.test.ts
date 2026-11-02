@@ -35,4 +35,14 @@ describe('adviseLoad', () => {
     const h = [...sess('s0', '2026-11-11T10:00:00Z', 60, [10, 10, 10]), ...sess('s1', '2026-11-18T10:00:00Z', 55, [12, 12], 4, { deload: true })]
     expect(adviseLoad(p, h, { beginner: false, deload: false, now })?.loadKg).toBe(60)
   })
+  it('avisa de l’estancament després de 3 sessions sense pujar', () => {
+    const h = [
+      ...sess('s0', '2026-11-11T10:00:00Z', 60, [9, 9, 9]),
+      ...sess('s1', '2026-11-14T10:00:00Z', 60, [9, 9, 8]),
+      ...sess('s2', '2026-11-18T10:00:00Z', 60, [9, 9, 9]),
+    ]
+    const a = adviseLoad(p, h, { beginner: false, deload: false, now })
+    expect(a?.loadKg).toBe(60)
+    expect(a?.reason).toMatch(/3 sessions/)
+  })
 })

@@ -11,9 +11,13 @@ type Props = {
   onRetrySync: () => void
   onActivateCloud?: () => void
   onReassess: () => void
+  planMode: 'automatic' | 'manual' | null
+  onEditPlan: () => void
+  onNewPlan: () => void
+  onShowLegal: () => void
 }
 
-export function Account({ alias, cloud, syncLabel, pending, syncError, levelLabel, onRetrySync, onActivateCloud, onReassess }: Props) {
+export function Account({ alias, cloud, syncLabel, pending, syncError, levelLabel, onRetrySync, onActivateCloud, onReassess, planMode, onEditPlan, onNewPlan, onShowLegal }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [typed, setTyped] = useState('')
@@ -82,9 +86,23 @@ export function Account({ alias, cloud, syncLabel, pending, syncError, levelLabe
 
       <section className="card stack-sm">
         <h2>El meu pla</h2>
-        <p className="muted">Repeteix la valoració per mesurar el progrés i generar un pla nou adaptat.</p>
+        <p className="muted">
+          {planMode === 'manual'
+            ? 'Fas servir un pla manual: tu decideixes els exercicis, les sèries i les repeticions.'
+            : planMode === 'automatic'
+              ? 'L’app genera i fa progressar el pla a partir de la teva valoració.'
+              : 'Encara no tens cap pla.'}
+        </p>
+        {planMode && (
+          <button type="button" className="btn ghost block" onClick={onEditPlan}>
+            {planMode === 'manual' ? 'Edita el pla' : 'Personalitza el pla (passa a manual)'}
+          </button>
+        )}
         <button type="button" className="btn ghost block" onClick={onReassess}>
-          Repeteix la valoració
+          {planMode === 'manual' ? 'Torna al pla automàtic (nova valoració)' : planMode ? 'Repeteix la valoració' : 'Fes la valoració'}
+        </button>
+        <button type="button" className="btn ghost block" onClick={onNewPlan}>
+          Crea un pla manual des de zero
         </button>
       </section>
 
@@ -101,6 +119,10 @@ export function Account({ alias, cloud, syncLabel, pending, syncError, levelLabe
           {busy === 'csv' ? 'Preparant…' : 'Descarrega l’historial de sèries (CSV)'}
         </button>
       </section>
+
+      <button type="button" className="btn ghost block" onClick={onShowLegal}>
+        Privacitat i avís de salut
+      </button>
 
       <section className="card stack-sm danger">
         <h2>Esborrar el compte</h2>

@@ -5,11 +5,12 @@ type Props = {
   error: string | null
   onSubmit: (alias: string, ageRange: string | null) => void
   onOffline: (alias: string, ageRange: string | null) => void
+  onShowLegal: () => void
 }
 
 const AGES = ['18-29', '30-39', '40-49', '50-59', '60-69', '70+']
 
-export function Onboarding({ busy, error, onSubmit, onOffline }: Props) {
+export function Onboarding({ busy, error, onSubmit, onOffline, onShowLegal }: Props) {
   const [alias, setAlias] = useState('')
   const [age, setAge] = useState<string | null>(null)
   const [consent, setConsent] = useState(false)
@@ -60,8 +61,12 @@ export function Onboarding({ busy, error, onSubmit, onOffline }: Props) {
         <label className="consent">
           <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
           <span>
-            Accepto que les meves dades d’entrenament es guardin de forma pseudonimitzada en servidors de la UE.
-            Les puc exportar o esborrar quan vulgui. Entenc que l’app no substitueix el consell mèdic.
+            Tinc 18 anys o més i dono el meu consentiment explícit perquè es guardin, de forma pseudonimitzada, les
+            meves dades d’entrenament i de salut (qüestionari de salut, tests, mesures i estat diari). Les puc
+            exportar o esborrar quan vulgui. Entenc que l’app no substitueix el consell mèdic.{' '}
+            <button type="button" className="inline-link" onClick={onShowLegal}>
+              Llegeix la política de privacitat i l’avís de salut
+            </button>
           </span>
         </label>
 

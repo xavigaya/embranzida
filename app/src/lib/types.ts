@@ -49,11 +49,22 @@ export type GeneratorInputs = {
   startDate: string
 }
 
+// Sessió de la plantilla setmanal d'un pla manual
+export type TemplateSession = {
+  id: string
+  title: string
+  weekday: number // 0 = dilluns … 6 = diumenge
+  items: Prescription[]
+}
+
 export type Plan = {
   id: string
   createdAt: string
   startDate: string
   weeks: number
+  mode?: 'automatic' | 'manual' // absent = automàtic (plans antics)
+  template?: TemplateSession[] // només als plans manuals
+  deloadEvery4?: boolean // només als plans manuals
   inputs: GeneratorInputs
   mesocycles: { id: string; position: number; phase: 'acumulacio' | 'intensificacio' | 'realitzacio'; weeks: number }[]
   sessions: PlannedSession[]

@@ -84,7 +84,16 @@ export function adviseLoad(
     } else if (sug?.kind === 'baixar') {
       advice = { loadKg: sug.nextLoadKg, reason: 'Baixes un 10 %: la última sessió va costar massa' }
     } else {
-      advice = { loadKg: lastLoad, reason: 'Mateixa càrrega: busca més repeticions' }
+      // Estancament: 3 sessions seguides o més amb la mateixa càrrega sense poder pujar
+      let same = 0
+      for (const g of sessions) {
+        if (Math.max(...g.map((h) => h.loadKg ?? 0)) !== lastLoad) break
+        same++
+      }
+      advice =
+        same >= 3
+          ? { loadKg: lastLoad, reason: `Fa ${same} sessions que no puges de càrrega: prova una variant de l’exercici o espera la setmana de descàrrega` }
+          : { loadKg: lastLoad, reason: 'Mateixa càrrega: busca més repeticions' }
     }
   }
   if (opts.deload) advice = { loadKg: roundLoad(advice.loadKg * 0.9), reason: 'Setmana de descàrrega: 90 % de la càrrega' }

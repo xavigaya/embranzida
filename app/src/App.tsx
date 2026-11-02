@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Account } from './components/Account'
 import { Assessment } from './components/Assessment'
 import { DailyCheck } from './components/DailyCheck'
+import { Legal } from './components/Legal'
+import { PlanEditor } from './components/PlanEditor'
 import { Progress } from './components/Progress'
 import { TabBar, type Tab } from './components/TabBar'
 import { Onboarding } from './components/Onboarding'
@@ -11,14 +13,15 @@ import { available, CATALOG } from './data/catalog'
 import { db, type DoneRow } from './lib/db'
 import { fatigueFlag, reducedSets } from './lib/fatigue'
 import { LEVEL_LABEL } from './lib/level'
+import { buildManualPlan, templateFromPlan } from './lib/manualPlan'
 import { generatePlan } from './lib/generator'
 import { adviseLoad, type HistoryEntry } from './lib/loads'
 import { epley1RM, fmtKg } from './lib/progression'
 import { supabase } from './lib/supabase'
 import { syncOutbox } from './lib/sync'
-import type { AssessmentPayload, DailyStatus, Measurement, Plan, PlannedSession, Prescription } from './lib/types'
+import type { AssessmentPayload, DailyStatus, GeneratorInputs, Measurement, Plan, PlannedSession, Prescription, TemplateSession } from './lib/types'
 
-type Stage = 'loading' | 'onboarding' | 'assessment' | 'today' | 'summary'
+type Stage = 'loading' | 'onboarding' | 'assessment' | 'today' | 'summary' | 'editor'
 type Summary = { minutes: number; sets: number; volume: number; best: { name: string; kg: number }[] }
 
 const LOCAL_ALIAS = 'emb.alias'
@@ -69,6 +72,8 @@ export default function App() {
   const [measurements, setMeasurements] = useState<Measurement[]>([])
   const [dailySkipped, setDailySkipped] = useState(false)
   const [tab, setTab] = useState<Tab>('avui')
+  const [showLegal, setShowLegal] = useState(false)
+  const [editorFrom, setEditorFrom] = useState<'new' | 'edit' | 'auto'>('new')
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [swaps, setSwaps] = useState<Record<string, string>>(() => readJson(LOCAL_SWAPS, {}))
   const [sessionSwaps, setSessionSwaps] = useState<Record<string, string>>({})
@@ -196,6 +201,50 @@ export default function App() {
     setStage('today')
     if (cloud) runSync()
     else setPending(await db.outbox.count())
+  }
+
+  // Pla manual: crea'l, edita'l o converteix el pla automàtic
+  const openEditor = (from: 'new' | 'edit' | 'auto') => {
+    setEditorFrom(from)
+    setStage('editor')
+    window.scrollTo(0, 0)
+  }
+
+  const saveManualPlan = async (r: { template: TemplateSession[]; weeks: number; deloadEvery4: boolean }) => {
+    const keep = editorFrom !== 'new' && plan ? { plan, done } : undefined
+    const assessed = readJson<{ level?: string; parqFlag?: boolean } | null>('emb.assessment', null)
+    const inputs: GeneratorInputs = plan?.inputs ?? {
+      level: (assessed?.level as GeneratorInputs['level']) ?? 'principiant',
+      goals: [],
+      days: r.template.length,
+      minutes: 60,
+      equipment: ['barra', 'rack', 'banc', 'manuella', 'kettlebell', 'politja', 'barra fixa', 'cardio'],
+      ageRange,
+      parqFlag: assessed?.parqFlag ?? false,
+      startDate: todayIso(),
+    }
+    const { plan: newPlan, carriedDone } = buildManualPlan({
+      template: r.template,
+      weeks: r.weeks,
+      deloadEvery4: r.deloadEvery4,
+      startDate: keep ? keep.plan.startDate : todayIso(),
+      inputs,
+      previous: keep,
+    })
+    // Les sessions ja fetes es conserven en el pla nou
+    const carried: DoneRow[] = carriedDone.map(({ oldId, newId }) => {
+      const old = doneRows.find((d) => d.plannedSessionId === oldId)!
+      return { ...old, plannedSessionId: newId }
+    })
+    await db.plans.put(newPlan)
+    if (carried.length) await db.done.bulkPut(carried)
+    await db.outbox.put({ id: newPlan.id, kind: 'plan', payload: newPlan, createdAt: new Date().toISOString() })
+    setPlan(newPlan)
+    setDoneRows([...doneRows, ...carried])
+    setSessionSwaps({})
+    setTab('avui')
+    setStage('today')
+    afterLocalSave()
   }
 
   // Sessió que toca: la primera del pla que encara no s'ha fet
@@ -353,8 +402,34 @@ export default function App() {
   if (stage === 'assessment')
     return <Assessment ageRange={ageRange} onCancel={() => setStage('today')} onSave={saveAssessment} />
 
+  const legal = showLegal ? <Legal onBack={() => setShowLegal(false)} /> : null
+
+  if (stage === 'editor') {
+    const currentWeek = next?.week ?? 1
+    const initial: TemplateSession[] =
+      editorFrom === 'new' || !plan
+        ? [{ id: crypto.randomUUID(), title: 'Sessió 1', weekday: 0, items: [] }]
+        : templateFromPlan(plan, currentWeek)
+    return (
+      <PlanEditor
+        initial={initial}
+        initialWeeks={editorFrom === 'new' || !plan ? 8 : plan.weeks}
+        initialDeload={editorFrom === 'edit' ? (plan?.deloadEvery4 ?? true) : true}
+        editing={editorFrom !== 'new'}
+        fromAutomatic={editorFrom === 'auto'}
+        onCancel={() => setStage('today')}
+        onSave={saveManualPlan}
+      />
+    )
+  }
+
   if (stage === 'onboarding')
-    return <Onboarding busy={busy} error={error} onSubmit={createAccount} onOffline={goOffline} />
+    return (
+      <>
+        <Onboarding busy={busy} error={error} onSubmit={createAccount} onOffline={goOffline} onShowLegal={() => setShowLegal(true)} />
+        {legal}
+      </>
+    )
 
   if (stage === 'summary' && summary)
     return (
@@ -428,6 +503,10 @@ export default function App() {
         onRetrySync={runSync}
         onActivateCloud={activateCloud}
         onReassess={() => setStage('assessment')}
+        planMode={plan ? (plan.mode ?? 'automatic') : null}
+        onEditPlan={() => openEditor(plan?.mode === 'manual' ? 'edit' : 'auto')}
+        onNewPlan={() => openEditor('new')}
+        onShowLegal={() => setShowLegal(true)}
       />
     )
   } else if (!plan || !prepared) {
@@ -449,12 +528,15 @@ export default function App() {
           </div>
         </header>
         <button type="button" className="assess-card" onClick={() => setStage('assessment')}>
-          <strong>{plan ? 'Has completat el pla de 12 setmanes!' : 'Fes la valoració inicial'}</strong>
+          <strong>{plan ? `Has completat el pla de ${plan.weeks} setmanes!` : 'Fes la valoració inicial'}</strong>
           <span>
             {plan
               ? 'Repeteix la valoració per veure el teu progrés i generar el pla següent.'
               : 'Uns minuts de preguntes i tests per generar el teu pla de 12 setmanes.'}
           </span>
+        </button>
+        <button type="button" className="btn ghost block" onClick={() => openEditor('new')}>
+          {plan ? 'O crea un pla manual' : 'O crea el teu propi pla'}
         </button>
       </main>
     )
@@ -481,6 +563,7 @@ export default function App() {
     <>
       {screen}
       <TabBar tab={tab} onChange={(t) => (setTab(t), window.scrollTo(0, 0))} />
+      {legal}
     </>
   )
 }

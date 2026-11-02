@@ -336,3 +336,40 @@ p { margin: 0; }
 .account header, .progress-screen header { display: flex; flex-direction: column; gap: 4px; }
 .danger { border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
 .btn.danger-btn { background: color-mix(in srgb, var(--bad) 18%, var(--surface)); color: var(--bad); border: 1px solid var(--bad); }
+
+/* Textos legals */
+.inline-link { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; font: inherit; text-align: left; }
+.legal { padding-bottom: 48px; }
+.legal-head { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.legal-head .btn { min-height: 44px; padding: 8px 14px; }
+.legal-sec { display: flex; flex-direction: column; gap: 10px; line-height: 1.5; }
+.legal-sec ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--text); }
+.legal-sec p { color: var(--text); }
+.warn-sec { border-color: var(--warn); }
+
+/* Editor de plans */
+.editor { padding-bottom: calc(120px + env(safe-area-inset-bottom)); }
+.editor header { display: flex; flex-direction: column; gap: 8px; }
+.ed-row { display: flex; gap: 10px; align-items: center; }
+.ed-title {
+  flex: 1; min-width: 0; min-height: 48px; font-size: 1.1rem; font-weight: 800; color: var(--text);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 0 12px;
+}
+.ed-title:focus { outline: 2px solid var(--accent); }
+.ed-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ed-items li { display: flex; gap: 8px; align-items: stretch; }
+.ed-item {
+  flex: 1; min-width: 0; text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 3px;
+}
+.ed-item small { color: var(--muted); font-size: 0.8rem; }
+.ed-move { display: flex; flex-direction: column; gap: 4px; }
+.ed-move button { width: 40px; flex: 1; min-height: 26px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); font-weight: 800; }
+.ed-move button:disabled { opacity: 0.3; }
+.sheet-card.tall { max-height: 92dvh; overflow-y: auto; }
+.picker-list { max-height: 50dvh; overflow-y: auto; }
+.picker-list .option small { color: var(--muted); }
+.overlay-actions { flex-wrap: wrap; }
+.legal-layer { position: fixed; inset: 0; z-index: 20; background: var(--bg); overflow-y: auto; overscroll-behavior: contain; }
+.weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.weekdays .chip { min-width: 0; padding: 0; }

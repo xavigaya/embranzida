@@ -9,4 +9,12 @@ export const SUPABASE_URL =
 export const SUPABASE_PUBLISHABLE_KEY =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? 'sb_publishable_vDxHhG7x4b-lzPVw7tjp3g_rLv7ZFc1'
 
-export const CONSENT_VERSION = 'v0.1-2026-11'
+export const CONSENT_VERSION = 'v0.2-2026-11'
+
+// Dades de la política de privacitat. PENDENT: completar abans d'obrir l'app a més gent.
+export const LEGAL = {
+  controller: '', // Responsable del tractament: nom de la persona o entitat
+  contact: '', // Adreça de contacte per exercir els drets
+  dataRegion: 'Unió Europea', // Regió del projecte de Supabase (comprovar a Project Settings → General)
+  updated: '2 de novembre de 2026',
+}

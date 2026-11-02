@@ -64,12 +64,12 @@ async function pushPlan(userId: string, plan: Plan) {
   const { error: e1 } = await supabase.from('plans').upsert({
     id: plan.id,
     user_id: userId,
-    name: 'Pla de 12 setmanes',
-    mode: 'automatic',
+    name: plan.mode === 'manual' ? `Pla manual de ${plan.weeks} setmanes` : `Pla de ${plan.weeks} setmanes`,
+    mode: plan.mode ?? 'automatic',
     status: 'actiu',
     start_date: plan.startDate,
     weeks: plan.weeks,
-    generator: { version: 1, inputs: plan.inputs },
+    generator: plan.mode === 'manual' ? { version: 1, template: plan.template, deloadEvery4: plan.deloadEvery4 } : { version: 1, inputs: plan.inputs },
   })
   if (e1) return e1.message
   const goals = plan.inputs.goals.filter((g) => isUuid(g.id))
@@ -141,6 +141,7 @@ async function pushMeasurement(userId: string, m: Measurement) {
 
 // Puja al núvol tot el que hi ha pendent. Idempotent: fa servir upsert
 // amb els UUID generats al mòbil, de manera que repetir-ho no duplica res.
+// Si mentre puja s'afegeixen elements nous a la cua, continua fins a buidar-la.
 export async function syncOutbox(): Promise<{ pending: number; error?: string }> {
   if (syncing) return { pending: await db.outbox.count() }
   syncing = true
@@ -150,25 +151,27 @@ export async function syncOutbox(): Promise<{ pending: number; error?: string }>
     const userId = auth.user?.id
     if (!userId) return { pending: await db.outbox.count(), error: 'Sense sessió iniciada' }
 
-    const items: OutboxItem[] = await db.outbox.orderBy('createdAt').toArray()
-    for (const item of items) {
-      const err =
-        item.kind === 'assessment'
-          ? await pushAssessment(userId, item.payload)
-          : item.kind === 'plan'
-            ? await pushPlan(userId, item.payload)
-            : item.kind === 'daily'
-              ? await pushDaily(userId, item.payload)
-              : item.kind === 'measurement'
-                ? await pushMeasurement(userId, item.payload)
-                : await pushSession(userId, item.payload)
-      if (err) {
-        await db.outbox.update(item.id, { lastError: err })
-        return { pending: items.length, error: err }
+    for (;;) {
+      const items: OutboxItem[] = await db.outbox.orderBy('createdAt').toArray()
+      if (!items.length) return { pending: 0 }
+      for (const item of items) {
+        const err =
+          item.kind === 'assessment'
+            ? await pushAssessment(userId, item.payload)
+            : item.kind === 'plan'
+              ? await pushPlan(userId, item.payload)
+              : item.kind === 'daily'
+                ? await pushDaily(userId, item.payload)
+                : item.kind === 'measurement'
+                  ? await pushMeasurement(userId, item.payload)
+                  : await pushSession(userId, item.payload)
+        if (err) {
+          await db.outbox.update(item.id, { lastError: err })
+          return { pending: await db.outbox.count(), error: err }
+        }
+        await db.outbox.delete(item.id)
       }
-      await db.outbox.delete(item.id)
     }
-    return { pending: 0 }
   } finally {
     syncing = false
   }
