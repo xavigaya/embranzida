@@ -17,6 +17,8 @@ import { buildManualPlan, templateFromPlan } from './lib/manualPlan'
 import { generatePlan } from './lib/generator'
 import { adviseLoad, type HistoryEntry } from './lib/loads'
 import { epley1RM, fmtKg } from './lib/progression'
+import { accountInfo, touchLastSeen, type AccountInfo } from './lib/auth'
+import { restoreFromCloud } from './lib/restore'
 import { supabase } from './lib/supabase'
 import { syncOutbox } from './lib/sync'
 import type { AssessmentPayload, DailyStatus, GeneratorInputs, Measurement, Plan, PlannedSession, Prescription, TemplateSession } from './lib/types'
@@ -73,6 +75,8 @@ export default function App() {
   const [dailySkipped, setDailySkipped] = useState(false)
   const [tab, setTab] = useState<Tab>('avui')
   const [showLegal, setShowLegal] = useState(false)
+  const [account, setAccount] = useState<AccountInfo | null>(null)
+  const [protectDismissed, setProtectDismissed] = useState(() => localStorage.getItem('emb.protectDismissed') === '1')
   const [editorFrom, setEditorFrom] = useState<'new' | 'edit' | 'auto'>('new')
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [swaps, setSwaps] = useState<Record<string, string>>(() => readJson(LOCAL_SWAPS, {}))
@@ -87,27 +91,26 @@ export default function App() {
 
   useEffect(() => {
     ;(async () => {
-      const [{ data }, lastPlan, rows, hist, count, dailyRows, meas] = await Promise.all([
-        supabase.auth.getSession(),
-        db.plans.orderBy('createdAt').last(),
-        db.done.toArray(),
-        db.history.toArray(),
-        db.outbox.count(),
-        db.daily.toArray(),
-        db.measurements.toArray(),
-      ])
-      setPlan(lastPlan ?? null)
-      setDoneRows(rows)
-      setDaily(dailyRows)
-      setMeasurements(meas)
-      setHistory(hist)
-      setPending(count)
+      const { data } = await supabase.auth.getSession()
+      await loadLocal()
       const local = localStorage.getItem(LOCAL_ALIAS)
       if (local) {
         setAlias(local)
         setCloud(!!data.session)
         setStage('today')
-        if (data.session) runSync()
+        if (data.session) afterSignIn()
+      } else if (data.session) {
+        // Hi ha sessió però no dades locals: es recuperen del núvol
+        try {
+          const r = await restoreFromCloud()
+          await loadLocal()
+          setAlias(r.alias)
+          setCloud(true)
+          setStage('today')
+          afterSignIn()
+        } catch {
+          setStage('onboarding')
+        }
       } else {
         setStage('onboarding')
       }
@@ -116,6 +119,49 @@ export default function App() {
     window.addEventListener('online', onOnline)
     return () => window.removeEventListener('online', onOnline)
   }, [runSync])
+
+  // Carrega a l'estat de l'app les dades guardades al mòbil
+  async function loadLocal() {
+    const [lastPlan, rows, hist, count, dailyRows, meas] = await Promise.all([
+      db.plans.orderBy('createdAt').last(),
+      db.done.toArray(),
+      db.history.toArray(),
+      db.outbox.count(),
+      db.daily.toArray(),
+      db.measurements.toArray(),
+    ])
+    setPlan(lastPlan ?? null)
+    setDoneRows(rows)
+    setDaily(dailyRows)
+    setMeasurements(meas)
+    setHistory(hist)
+    setPending(count)
+  }
+
+  // Amb sessió al núvol: sincronitza, actualitza la darrera activitat i el tipus de compte
+  async function afterSignIn() {
+    runSync()
+    const info = await accountInfo()
+    setAccount(info)
+    if (info) touchLastSeen(info.id)
+  }
+
+  // Entrada amb correu des d'un altre mòbil: recupera totes les dades del compte
+  const onLoggedIn = async () => {
+    setStage('loading')
+    try {
+      const r = await restoreFromCloud()
+      await loadLocal()
+      setAlias(r.alias)
+      setCloud(true)
+      setTab('avui')
+      setStage('today')
+      afterSignIn()
+    } catch (e) {
+      setError(`No s’han pogut recuperar les dades: ${(e as Error).message}`)
+      setStage('onboarding')
+    }
+  }
 
   const createAccount = async (name: string, age: string | null): Promise<boolean> => {
     setBusy(true)
@@ -135,7 +181,7 @@ export default function App() {
       setAlias(name)
       setCloud(true)
       setStage(plan ? 'today' : 'assessment')
-      runSync()
+      afterSignIn()
       return true
     } catch (err) {
       setError(explain((err as Error).message))
@@ -426,7 +472,7 @@ export default function App() {
   if (stage === 'onboarding')
     return (
       <>
-        <Onboarding busy={busy} error={error} onSubmit={createAccount} onOffline={goOffline} onShowLegal={() => setShowLegal(true)} />
+        <Onboarding busy={busy} error={error} onSubmit={createAccount} onOffline={goOffline} onShowLegal={() => setShowLegal(true)} onLoggedIn={onLoggedIn} />
         {legal}
       </>
     )
@@ -483,6 +529,28 @@ export default function App() {
       </main>
     )
 
+  const protectCard =
+    account?.isAnonymous && doneRows.length > 0 && !protectDismissed ? (
+      <section className="protect-note">
+        <p>
+          <strong>El teu compte només existeix en aquest mòbil.</strong> Vincula-hi un correu per no perdre l’historial si
+          canvies de mòbil o esborres les dades.
+        </p>
+        <div className="overlay-actions">
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => (localStorage.setItem('emb.protectDismissed', '1'), setProtectDismissed(true))}
+          >
+            Ara no
+          </button>
+          <button type="button" className="btn primary" onClick={() => (setTab('compte'), window.scrollTo(0, 0))}>
+            Vincula un correu
+          </button>
+        </div>
+      </section>
+    ) : null
+
   const dailyCard =
     !dailySkipped && !daily.some((d) => d.day === todayIso()) ? (
       <DailyCheck day={todayIso()} onSave={saveDaily} onSkip={() => setDailySkipped(true)} />
@@ -507,6 +575,8 @@ export default function App() {
         onEditPlan={() => openEditor(plan?.mode === 'manual' ? 'edit' : 'auto')}
         onNewPlan={() => openEditor('new')}
         onShowLegal={() => setShowLegal(true)}
+        account={account}
+        onLinked={async () => setAccount(await accountInfo())}
       />
     )
   } else if (!plan || !prepared) {
@@ -552,7 +622,12 @@ export default function App() {
         alternatives={alternatives}
         onSwap={onSwap}
         onFinish={finish}
-        topSlot={dailyCard}
+        topSlot={
+          <>
+            {protectCard}
+            {dailyCard}
+          </>
+        }
         lane={{ weeks: plan.weeks, deloadWeeks: [...new Set(plan.sessions.filter((x) => x.deload).map((x) => x.week))] }}
         notice={fatigue && !prepared.session.deload ? `${fatigue}: avui farem un 25 % menys de sèries a la part principal.` : null}
       />

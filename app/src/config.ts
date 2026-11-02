@@ -17,4 +17,7 @@ export const LEGAL = {
   contact: '', // Adreça de contacte per exercir els drets
   dataRegion: 'Unió Europea', // Regió del projecte de Supabase (comprovar a Project Settings → General)
   updated: '2 de novembre de 2026',
+  // Terminis de neteja de comptes inactius (han de coincidir amb supabase/migrations/002_comptes.sql)
+  inactiveAnonMonths: 6,
+  inactiveLinkedMonths: 24,
 }

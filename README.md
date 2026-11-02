@@ -29,6 +29,8 @@ app/                 App React + TypeScript (PWA)
 supabase/
   schema.sql         Esquema de base de dades i polítiques de seguretat
   seed.sql           Biblioteca d'exercicis (generat amb `npm run seed`)
+  migrations/        Canvis posteriors a l'esquema (executar en ordre)
+  admin/usuaris.sql  Consulta per identificar els usuaris al SQL Editor
 ```
 
 ## Desenvolupament
@@ -59,6 +61,17 @@ npm run seed     # regenera supabase/seed.sql després d'editar exercises.json
 2. Supabase → **SQL Editor** → enganxar `supabase/schema.sql` → **Run**.
 3. Comprovar a *Table Editor* que les 13 taules tenen «RLS enabled».
 4. Executar també `supabase/seed.sql` per carregar els exercicis inicials.
+5. Activar l'extensió **pg_cron** (*Database → Extensions*) i executar `supabase/migrations/002_comptes.sql`
+   (darrera activitat i neteja automàtica de comptes abandonats).
+
+## Comptes i correu
+
+- Els comptes es creen anònims. Vincular-hi un correu (opcional, des de *Compte*) permet entrar-hi des d'un altre mòbil.
+- Configuració necessària a Supabase:
+  - *Authentication → Sign In / Providers*: **Allow manual linking** activat.
+  - *Authentication → URL Configuration*: **Site URL** = l'adreça `….pages.dev` de l'app.
+  - *Authentication → Emails → Templates*: afegir `{{ .Token }}` a les plantilles **Change email address** i **Magic link**.
+  - *Project Settings → Authentication → SMTP*: un servidor de correu propi per poder enviar codis fora de l'equip de Supabase.
 
 ## Protecció de dades
 

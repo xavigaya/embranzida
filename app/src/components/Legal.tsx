@@ -49,8 +49,9 @@ export function Legal({ onBack }: { onBack: () => void }) {
           <li>El pla d’entrenament i el registre de sessions i sèries.</li>
         </ul>
         <p>
-          No demanem correu ni nom real. Algunes d’aquestes dades són dades de salut, una categoria especial segons
-          el Reglament general de protecció de dades (RGPD).
+          No demanem el nom real. El correu és opcional: només el guardem si el vincules al compte per poder-hi entrar
+          des d’un altre mòbil, i es guarda separat de les dades d’entrenament. Algunes d’aquestes dades són dades de
+          salut, una categoria especial segons el Reglament general de protecció de dades (RGPD).
         </p>
       </section>
 
@@ -88,6 +89,15 @@ export function Legal({ onBack }: { onBack: () => void }) {
         <p>
           Mentre tinguis el compte. Quan l’esborres des de Compte → Esborrar el compte, se suprimeixen totes les
           dades del núvol i del mòbil de manera immediata.
+        </p>
+        <p>Els comptes abandonats s’esborren automàticament, amb totes les seves dades:</p>
+        <ul>
+          <li>Sense correu vinculat: després de 6 mesos sense obrir l’app amb connexió.</li>
+          <li>Amb correu vinculat: després de 24 mesos sense activitat.</li>
+        </ul>
+        <p>
+          Sense correu vinculat, el compte només es pot fer servir des del mòbil on es va crear: si es perden les dades
+          d’aquell mòbil, ja no s’hi pot tornar a accedir i s’esborrarà en el termini indicat.
         </p>
       </section>
 

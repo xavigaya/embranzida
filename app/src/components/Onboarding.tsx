@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { loginStart, loginVerify } from '../lib/auth'
+import { EmailCode } from './EmailCode'
 
 type Props = {
   busy: boolean
@@ -6,14 +8,16 @@ type Props = {
   onSubmit: (alias: string, ageRange: string | null) => void
   onOffline: (alias: string, ageRange: string | null) => void
   onShowLegal: () => void
+  onLoggedIn: () => void
 }
 
 const AGES = ['18-29', '30-39', '40-49', '50-59', '60-69', '70+']
 
-export function Onboarding({ busy, error, onSubmit, onOffline, onShowLegal }: Props) {
+export function Onboarding({ busy, error, onSubmit, onOffline, onShowLegal, onLoggedIn }: Props) {
   const [alias, setAlias] = useState('')
   const [age, setAge] = useState<string | null>(null)
   const [consent, setConsent] = useState(false)
+  const [login, setLogin] = useState(false)
   const ok = alias.trim().length >= 2 && consent
 
   return (
@@ -31,6 +35,20 @@ export function Onboarding({ busy, error, onSubmit, onOffline, onShowLegal }: Pr
         <p className="brand-tag">Planifica l’entrenament, registra cada sèrie i mira com progresses.</p>
       </div>
 
+      {login ? (
+        <section className="card form">
+          <h2>Entra al teu compte</h2>
+          <p className="muted">Escriu el correu que vas vincular al compte i t’enviarem un codi per entrar.</p>
+          <EmailCode
+            sendLabel="Envia’m el codi"
+            verifyLabel="Entra"
+            onSend={loginStart}
+            onVerify={loginVerify}
+            onDone={onLoggedIn}
+            onCancel={() => setLogin(false)}
+          />
+        </section>
+      ) : (
       <form
         className="card form"
         onSubmit={(e) => {
@@ -88,6 +106,12 @@ export function Onboarding({ busy, error, onSubmit, onOffline, onShowLegal }: Pr
           </button>
         )}
       </form>
+      )}
+      {!login && (
+        <button type="button" className="btn ghost block" onClick={() => setLogin(true)}>
+          Ja tinc un compte amb correu
+        </button>
+      )}
     </main>
   )
 }

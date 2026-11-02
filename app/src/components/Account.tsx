@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { collectAllData, deleteEverything, download, historyCsv } from '../lib/account'
+import { linkEmailStart, linkEmailVerify, type AccountInfo } from '../lib/auth'
+import { EmailCode } from './EmailCode'
 
 type Props = {
   alias: string
@@ -15,13 +17,16 @@ type Props = {
   onEditPlan: () => void
   onNewPlan: () => void
   onShowLegal: () => void
+  account: AccountInfo | null
+  onLinked: () => void
 }
 
-export function Account({ alias, cloud, syncLabel, pending, syncError, levelLabel, onRetrySync, onActivateCloud, onReassess, planMode, onEditPlan, onNewPlan, onShowLegal }: Props) {
+export function Account({ alias, cloud, syncLabel, pending, syncError, levelLabel, onRetrySync, onActivateCloud, onReassess, planMode, onEditPlan, onNewPlan, onShowLegal, account, onLinked }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [typed, setTyped] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [linking, setLinking] = useState(false)
   const stamp = new Date().toLocaleDateString('sv-SE')
 
   const exportJson = async () => {
@@ -62,6 +67,41 @@ export function Account({ alias, cloud, syncLabel, pending, syncError, levelLabe
           {levelLabel && <>, nivell {levelLabel.toLowerCase()}</>}
         </p>
       </header>
+
+      {account && account.isAnonymous && (
+        <section className="card stack-sm protect">
+          <h2>El compte només existeix en aquest mòbil</h2>
+          <p>
+            Si canvies de mòbil, esborres les dades de Chrome o desinstal·les l’app, perdràs l’accés al compte i a tot
+            l’historial. Vincula-hi un correu per poder tornar-hi a entrar des de qualsevol mòbil.
+          </p>
+          <p className="muted small">El correu només serveix per entrar: no es guarda al costat de les dades d’entrenament ni l’usarem per a res més.</p>
+          {!linking ? (
+            <button type="button" className="btn primary block" onClick={() => setLinking(true)}>
+              Vincula un correu
+            </button>
+          ) : (
+            <EmailCode
+              sendLabel="Envia’m el codi"
+              verifyLabel="Vincula el correu"
+              onSend={linkEmailStart}
+              onVerify={linkEmailVerify}
+              onDone={() => (setLinking(false), onLinked())}
+              onCancel={() => setLinking(false)}
+            />
+          )}
+        </section>
+      )}
+
+      {account && !account.isAnonymous && (
+        <section className="card stack-sm">
+          <h2>Compte protegit</h2>
+          <p className="muted">
+            Vinculat a <strong>{account.email}</strong>. Des d’un altre mòbil, tria «Ja tinc un compte» a la pantalla
+            d’inici i entra amb aquest correu.
+          </p>
+        </section>
+      )}
 
       <section className="card stack-sm">
         <h2>Sincronització</h2>
@@ -125,6 +165,12 @@ export function Account({ alias, cloud, syncLabel, pending, syncError, levelLabe
       <button type="button" className="btn ghost block" onClick={onShowLegal}>
         Privacitat i avís de salut
       </button>
+
+      {account && (
+        <p className="muted small center">
+          Identificador del compte: <code>{account.id.slice(0, 8)}</code>
+        </p>
+      )}
 
       <section className="card stack-sm danger">
         <h2>Esborrar el compte</h2>

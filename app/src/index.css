@@ -462,3 +462,10 @@ strong { font-weight: 700; }
 .ed-move button:disabled { opacity: 0.3; }
 .picker-list { max-height: 50dvh; overflow-y: auto; }
 .picker-list .option small { color: var(--muted); }
+
+/* Protecció del compte */
+.protect { border: 2px solid var(--warn); }
+.protect h2 { font-size: 1.6rem; }
+.protect-note { border-left: 4px solid var(--warn); background: var(--surface); border-radius: 0 var(--radius) var(--radius) 0; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.code-input { font-family: var(--font-display); font-size: 2.2rem; font-weight: 800; letter-spacing: 0.3em; text-align: center; }
+code { font-family: var(--font-display); font-size: 1.15em; font-weight: 800; letter-spacing: 0.05em; color: var(--ink); }
