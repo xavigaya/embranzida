@@ -78,7 +78,6 @@ export function Progress({ plan, done, history, measurements, onAddMeasurement }
   return (
     <main className="screen progress-screen">
       <header>
-        <p className="kicker">El meu progrés</p>
         <h1>Progrés</h1>
       </header>
 

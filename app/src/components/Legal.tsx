@@ -10,7 +10,6 @@ export function Legal({ onBack }: { onBack: () => void }) {
         <button type="button" className="btn ghost" onClick={onBack}>
           ← Torna
         </button>
-        <p className="kicker">Embranzida</p>
         <h1>Privacitat i avís de salut</h1>
         <p className="muted small">
           Última actualització: {LEGAL.updated} · versió del consentiment {CONSENT_VERSION}

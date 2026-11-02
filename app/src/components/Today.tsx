@@ -3,7 +3,12 @@ import { db } from '../lib/db'
 import { epley1RM, fmtKg, suggestNext } from '../lib/progression'
 import type { Block, PlannedSession, Prescription, SessionDraft, SetLog } from '../lib/types'
 import { RestTimer } from './RestTimer'
+import { CATALOG } from '../data/catalog'
+import { PlanLane } from './PlanLane'
+import { Plates } from './Plates'
 import { Stepper } from './Stepper'
+
+const needsBar = new Set(CATALOG.filter((e) => e.needs?.includes('barra')).map((e) => e.id))
 
 export type FinishData = {
   draft: SessionDraft
@@ -26,6 +31,7 @@ type Props = {
   onSwap: (p: Prescription, toId: string, permanent: boolean) => void
   onFinish: (data: FinishData) => void
   topSlot?: ReactNode
+  lane: { weeks: number; deloadWeeks: number[] }
   notice?: string | null
 }
 
@@ -44,7 +50,7 @@ const BLOCK_LABEL: Record<Block, string> = {
 const isLong = (p: Prescription) => (p.durationS ?? 0) >= 300
 const fmtDur = (s: number) => (s >= 300 ? `${Math.round(s / 60)} min` : s >= 60 && s % 60 === 0 ? `${s / 60} min` : `${s} s`)
 
-function prescriptionLabel(p: Prescription) {
+function prescriptionLabel(p: Prescription): string[] {
   let main: string
   if (p.track === 'time' || p.durationS) {
     main = p.sets > 1 ? `${p.sets} × ${fmtDur(p.durationS ?? 0)}` : fmtDur(p.durationS ?? 0)
@@ -56,13 +62,25 @@ function prescriptionLabel(p: Prescription) {
   if (p.rirTarget != null) parts.push(`RIR ${p.rirTarget}`)
   if (p.hrZone) parts.push(`zona ${p.hrZone}`)
   if (p.sets > 1 && p.restS >= 60 && p.durationS) parts.push(`rec. ${fmtDur(p.restS)}`)
-  return parts.join(' · ')
+  return parts
 }
 
+const Meta = ({ parts }: { parts: string[] }) => (
+  <span className="meta">
+    {parts.map((t) => (
+      <span key={t}>{t}</span>
+    ))}
+  </span>
+)
+
 function setLabel(s: SetLog) {
-  if (s.durationS != null && s.reps == null) return fmtDur(s.durationS)
-  const kg = s.loadKg ? `${fmtKg(s.loadKg)} kg × ` : ''
-  return `${kg}${s.reps}${s.rir != null ? ` · RIR ${s.rir}` : ''}`
+  if (s.durationS != null && s.reps == null) return <b>{fmtDur(s.durationS)}</b>
+  return (
+    <>
+      <b>{s.loadKg ? `${fmtKg(s.loadKg)} × ${s.reps}` : s.reps}</b>
+      {s.rir != null && <small>RIR {s.rir}</small>}
+    </>
+  )
 }
 
 function useWakeLock(active: boolean) {
@@ -84,7 +102,7 @@ function useWakeLock(active: boolean) {
   }, [active])
 }
 
-export function Today({ session, advice, week, alias, syncLabel, onChipClick, alternatives, onSwap, onFinish, topSlot, notice }: Props) {
+export function Today({ session, advice, week, syncLabel, onChipClick, alternatives, onSwap, onFinish, topSlot, notice, lane }: Props) {
   const [draft, setDraft] = useState<SessionDraft | null>(null)
   const [activeId, setActiveId] = useState<string>(session.prescriptions[0]?.id)
   const [entry, setEntry] = useState<Entry>({ load: 0, reps: 0, rir: 2, duration: 0 })
@@ -188,25 +206,27 @@ export function Today({ session, advice, week, alias, syncLabel, onChipClick, al
   return (
     <main className="screen today">
       <header className="today-head">
-        <div>
-          <p className="kicker">{fmtDay(tIso, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-          <h1>{session.title.split(' · ')[0]}</h1>
-          <p className="muted">
-            {[...session.title.split(' · ').slice(1), session.focus]
-              .join(' · ')
-              .replace(/^./, (c) => c.toUpperCase())}
-          </p>
-        </div>
-        <div className="head-side">
+        <div className="today-top">
+          <p className="today-date">{fmtDay(tIso, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
           {onChipClick ? (
             <button type="button" className="sync-chip action" onClick={onChipClick}>
-              {syncLabel} · Activa el núvol
+              {syncLabel}: activa el núvol
             </button>
           ) : (
             <span className="sync-chip">{syncLabel}</span>
           )}
-          <span className="hello">Hola, {alias}</span>
         </div>
+        <h1>{session.title.split(' · ')[0]}</h1>
+        {session.title.includes(' · ') && (
+          <p className="today-sub">
+            {session.title
+              .split(' · ')
+              .slice(1)
+              .join(', ')
+              .replace(/^./, (c) => c.toUpperCase())}
+          </p>
+        )}
+        <PlanLane weeks={lane.weeks} current={session.week} deloadWeeks={lane.deloadWeeks} deload={session.deload} />
       </header>
 
       <ol className="week-strip" aria-label="Sessions d’aquesta setmana">
@@ -226,6 +246,7 @@ export function Today({ session, advice, week, alias, syncLabel, onChipClick, al
       {session.deload && (
         <p className="date-note deload">Setmana de descàrrega: menys sèries i càrregues una mica més baixes per recuperar.</p>
       )}
+
 
       <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
         <div className="progress-bar" style={{ width: `${pct}%` }} />
@@ -250,7 +271,7 @@ export function Today({ session, advice, week, alias, syncLabel, onChipClick, al
                   <span className="ex-num">{complete ? '✓' : i + 1}</span>
                   <span className="ex-title">
                     <strong>{p.exercise.name}</strong>
-                    <small>{prescriptionLabel(p)}</small>
+                    <Meta parts={prescriptionLabel(p)} />
                   </span>
                   <span className="ex-count">
                     {Math.min(mine.length, p.sets)}/{p.sets}
@@ -273,7 +294,7 @@ export function Today({ session, advice, week, alias, syncLabel, onChipClick, al
                       <ul className="done-sets">
                         {mine.map((s) => (
                           <li key={s.id}>
-                            <span>S{s.setIndex}</span> {setLabel(s)}
+                            <span className="set-n">{s.setIndex}</span> {setLabel(s)}
                           </li>
                         ))}
                       </ul>
@@ -304,14 +325,17 @@ export function Today({ session, advice, week, alias, syncLabel, onChipClick, al
                           ) : (
                             <>
                               {p.track === 'load_reps' && (
-                                <Stepper
-                                  label="Càrrega"
-                                  unit="kg"
-                                  value={entry.load}
-                                  step={entry.load < 20 ? 1 : 2.5}
-                                  format={fmtKg}
-                                  onChange={(v) => setEntry({ ...entry, load: v })}
-                                />
+                                <div className="load-box">
+                                  <Stepper
+                                    label="Càrrega"
+                                    unit="kg"
+                                    value={entry.load}
+                                    step={entry.load < 20 ? 1 : 2.5}
+                                    format={fmtKg}
+                                    onChange={(v) => setEntry({ ...entry, load: v })}
+                                  />
+                                  {needsBar.has(p.exercise.id) && <Plates totalKg={entry.load} />}
+                                </div>
                               )}
                               <Stepper
                                 label="Repeticions"

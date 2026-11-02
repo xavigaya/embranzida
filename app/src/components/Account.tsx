@@ -56,9 +56,11 @@ export function Account({ alias, cloud, syncLabel, pending, syncError, levelLabe
   return (
     <main className="screen account">
       <header>
-        <p className="kicker">El meu compte</p>
-        <h1>{alias}</h1>
-        {levelLabel && <p className="muted">Nivell: {levelLabel}</p>}
+        <h1>Compte</h1>
+        <p className="muted">
+          Entrenes com a <strong>{alias}</strong>
+          {levelLabel && <>, nivell {levelLabel.toLowerCase()}</>}
+        </p>
       </header>
 
       <section className="card stack-sm">

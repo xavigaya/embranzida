@@ -434,8 +434,8 @@ export default function App() {
   if (stage === 'summary' && summary)
     return (
       <main className="screen summary">
-        <p className="kicker">Entrenament desat</p>
         <h1>Bona feina, {alias}!</h1>
+        <p className="muted">L’entrenament s’ha desat.</p>
         <dl className="stats">
           <div>
             <dt>Durada</dt>
@@ -514,7 +514,6 @@ export default function App() {
       <main className="screen today">
         <header className="today-head">
           <div>
-            <p className="kicker">Embranzida</p>
             <h1>Hola, {alias}</h1>
           </div>
           <div className="head-side">
@@ -554,6 +553,7 @@ export default function App() {
         onSwap={onSwap}
         onFinish={finish}
         topSlot={dailyCard}
+        lane={{ weeks: plan.weeks, deloadWeeks: [...new Set(plan.sessions.filter((x) => x.deload).map((x) => x.week))] }}
         notice={fatigue && !prepared.session.deload ? `${fatigue}: avui farem un 25 % menys de sèries a la part principal.` : null}
       />
     )

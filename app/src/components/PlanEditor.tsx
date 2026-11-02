@@ -67,8 +67,7 @@ export function PlanEditor({ initial, initialWeeks, initialDeload, editing, from
   return (
     <main className="screen editor">
       <header>
-        <p className="kicker">{editing ? 'Edita el pla' : 'Pla manual'}</p>
-        <h1>La meva setmana tipus</h1>
+        <h1>{editing ? 'Edita la setmana tipus' : 'La meva setmana tipus'}</h1>
         <p className="muted">
           Defineix les sessions d’una setmana; el pla les repetirà cada setmana. L’app no canviarà les sèries ni
           les repeticions, però et suggerirà les càrregues i t’avisarà si t’estanques.

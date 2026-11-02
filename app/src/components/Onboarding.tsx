@@ -19,9 +19,16 @@ export function Onboarding({ busy, error, onSubmit, onOffline, onShowLegal }: Pr
   return (
     <main className="screen onboarding">
       <div className="brand">
-        <span className="brand-mark" aria-hidden="true" />
+        <svg className="brand-mark" viewBox="0 0 120 64" aria-hidden="true">
+          <rect className="bar" x="0" y="29" width="34" height="6" rx="3" />
+          <rect className="bar" x="30" y="25" width="6" height="14" rx="2" />
+          <rect className="bar" x="34" y="27" width="84" height="10" rx="3" />
+          <rect className="plate p-red bm-1" x="40" y="2" width="15" height="60" rx="3" />
+          <rect className="plate p-blue bm-2" x="57" y="2" width="13" height="60" rx="3" />
+          <rect className="plate p-yellow bm-3" x="72" y="2" width="11" height="60" rx="3" />
+        </svg>
         <h1>Embranzida</h1>
-        <p className="muted">El teu entrenador de butxaca. Planifica, registra i progressa.</p>
+        <p className="brand-tag">Planifica l’entrenament, registra cada sèrie i mira com progresses.</p>
       </div>
 
       <form

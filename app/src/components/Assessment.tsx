@@ -402,7 +402,7 @@ export function Assessment({ ageRange, onCancel, onSave }: Props) {
       {step === 7 && result && (
         <section className="stack">
           <div className="level-card">
-            <span className="kicker">El teu nivell de partida</span>
+            <span className="level-lead">El teu nivell de partida</span>
             <strong>{LEVEL_LABEL[result.level]}</strong>
             {result.pushCat && <small>Flexions: {PUSH_LABEL[result.pushCat]} per a la teva edat</small>}
           </div>
