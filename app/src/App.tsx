@@ -407,6 +407,8 @@ export default function App() {
           e.id !== cur.id &&
           e.modality === cur.modality &&
           (cur.modality === 'forca' || cur.modality === 'cardio' ? e.pattern === cur.pattern : true) &&
+          // accessoris i pliometria: només del mateix grup (bíceps amb bíceps, etc.)
+          (cur.pattern === 'altre' && cur.modality === 'forca' ? e.target === cur.target : true) &&
           (e.target === 'equilibri') === (cur.target === 'equilibri') &&
           available(e, plan.inputs.equipment, plan.inputs.level),
       ).map((e) => ({ id: e.id, name: e.name }))

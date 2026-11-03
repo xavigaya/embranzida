@@ -22,7 +22,7 @@ export function Onboarding({ busy, error, onSubmit, onOffline, onShowLegal, onLo
 
   return (
     <main className="screen onboarding">
-      <div className="brand">
+      <div className="brand onboard-hero">
         <svg className="brand-mark" viewBox="0 0 120 64" aria-hidden="true">
           <rect className="bar" x="0" y="29" width="34" height="6" rx="3" />
           <rect className="bar" x="30" y="25" width="6" height="14" rx="2" />

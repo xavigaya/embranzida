@@ -8,55 +8,37 @@
                Atkinson Hyperlegible (text, llegible d'un cop d'ull)
    ===================================================================== */
 
+/* Redisseny (novembre 2026): estil fosc i fotogràfic, inspirat en les apps
+   d'entrenament amb coach digital. Sempre en mode fosc (ús al gimnàs). */
 :root {
-  --bg: #e9edf3;
-  --surface: #ffffff;
-  --surface-2: #dde3ec;
-  --line: #c9d1dd;
-  --line-strong: #9aa7ba;
-  --ink: #14213d;
-  --muted: #56627a;
-  --brand: #1d3f9a;
+  --bg: #0a0a0b;
+  --surface: #161618;
+  --surface-2: #232327;
+  --line: #2d2d32;
+  --line-strong: #4a4a52;
+  --ink: #f5f5f7;
+  --muted: #9b9ba3;
+  --brand: #f5f5f7;
   --action: #f6c514;
-  --action-ink: #14213d;
-  --good: #16794a;
-  --warn: #9a5b00;
-  --bad: #c2142d;
+  --action-ink: #0a0a0b;
+  --good: #4cc78a;
+  --warn: #f0b34a;
+  --bad: #ff6b7a;
   --plate-red: #d2232f;
   --plate-blue: #1f52c4;
   --plate-yellow: #f6c514;
   --plate-green: #1e8a4c;
-  --plate-white: #f7f8fa;
+  --plate-white: #e9edf3;
   --plate-steel: #a6aebb;
-  --bar: #7b8597;
-  --overlay: rgba(20, 33, 61, 0.55);
-  --radius: 14px;
+  --bar: #8d8d96;
+  --overlay: rgba(0, 0, 0, 0.78);
+  --radius: 8px;
   --font-display: 'Big Shoulders Display Variable', 'Arial Narrow', sans-serif;
   --font-body: 'Atkinson Hyperlegible', system-ui, sans-serif;
   --tabbar-h: 64px;
-  color-scheme: light;
+  color-scheme: dark;
   font-family: var(--font-body);
   -webkit-tap-highlight-color: transparent;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1a33;
-    --surface: #17254a;
-    --surface-2: #213462;
-    --line: #2c4074;
-    --line-strong: #4a5f96;
-    --ink: #eef2fb;
-    --muted: #a3b0cc;
-    --brand: #8eaaff;
-    --good: #4cc78a;
-    --warn: #f0b34a;
-    --bad: #ff7d8a;
-    --plate-white: #e9edf3;
-    --bar: #8d97ab;
-    --overlay: rgba(6, 11, 24, 0.7);
-    color-scheme: dark;
-  }
 }
 
 * { box-sizing: border-box; }
@@ -512,3 +494,102 @@ code { font-family: var(--font-display); font-size: 1.15em; font-weight: 800; le
 .overlay.work .ring-fill.work { stroke: var(--action); }
 .overlay.work .overlay-kicker { text-align: center; max-width: 90vw; }
 .overlay { overflow-y: auto; }
+
+
+/* ===================== Redisseny fosc i fotogràfic ===================== */
+h1, h2 { text-transform: uppercase; letter-spacing: 0.01em; }
+h1 { font-size: 3rem; }
+.btn { text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; border-radius: 6px; font-size: 0.95rem; }
+.btn.primary { box-shadow: none; }
+.btn.ghost { background: transparent; border-color: var(--line-strong); }
+.card { border: 0; background: var(--surface); }
+.chip { border-color: var(--line-strong); background: transparent; }
+.chip.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.block-head { text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.78rem; color: var(--muted); }
+.tabbar { background: #000; border-top-color: #1c1c1f; }
+.tabbar button { text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.7rem; }
+.tabbar button.on::before { left: 38%; right: 38%; height: 3px; }
+.sync-chip { background: transparent; }
+
+/* Portada de la sessió: foto a tota l'amplada */
+.hero {
+  position: relative; margin: 6px -16px 0; padding: 120px 16px 16px; min-height: 300px;
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 14px;
+  background: var(--surface) center 30% / cover no-repeat;
+}
+.hero::before {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(to bottom, rgba(10,10,11,0.15) 0%, rgba(10,10,11,0.35) 40%, rgba(10,10,11,0.92) 82%, var(--bg) 100%);
+}
+.hero > * { position: relative; }
+.hero .session-title { margin-top: 0; }
+.hero .session-title h1 { font-size: 3.6rem; line-height: 0.92; text-shadow: 0 2px 18px rgba(0,0,0,0.5); }
+.hero .today-sub { color: #d6d6db; }
+.hero .session-facts { border-top: 0; background: rgba(10,10,11,0.55); backdrop-filter: blur(6px); border-radius: 6px; }
+.hero .session-facts div { padding: 10px 12px 8px; }
+.session-status { text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.8rem; }
+
+/* Llista d'exercicis amb miniatura */
+.ex { border-bottom-color: var(--line); }
+.ex.active { border: 0; background: var(--surface); border-radius: var(--radius); }
+.ex.preview.active { border: 0; }
+.ex-head { gap: 12px; }
+.ex-thumb { position: relative; width: 64px; height: 64px; flex: none; border-radius: 6px; overflow: hidden; background: #eef1f5; }
+.ex-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ex-thumb .ex-num {
+  position: absolute; left: 4px; top: 4px; width: 22px; height: 22px; font-size: 0.85rem;
+  border: 0; background: rgba(10,10,11,0.85); color: #fff;
+}
+.ex.active .ex-thumb .ex-num { background: var(--action); color: var(--action-ink); }
+.ex.complete .ex-thumb .ex-num { background: var(--ink); color: var(--bg); }
+.ex.complete .ex-thumb img { filter: grayscale(1) brightness(0.6); }
+.ex-title strong { text-transform: uppercase; letter-spacing: 0.02em; font-family: var(--font-display); font-size: 1.3rem; font-weight: 800; line-height: 1.05; }
+.ex-media-frames { border-radius: 6px; }
+.advice, .done-sets li, .stepper, .plates { background: var(--surface-2); }
+.step-btn { background: transparent; border-color: var(--line-strong); }
+.set-n { color: var(--bg); background: var(--ink); }
+.progress { background: var(--surface-2); border-radius: 4px; }
+.progress-bar { background: var(--action); }
+.progress-label { color: var(--ink); }
+
+/* Setmana */
+.week-strip button.sel { background: var(--surface); box-shadow: inset 0 0 0 2px var(--ink); border-radius: 0 0 6px 6px; }
+.week-strip button.fet .wd::after { color: var(--action); }
+.week-strip button.fet { border-top-color: var(--ink); }
+.lane-seg.past { background: var(--ink); }
+.lane-btn { background: transparent; border-color: var(--line-strong); }
+
+/* Alta: portada fotogràfica */
+.onboarding { justify-content: flex-end; }
+.onboard-hero {
+  position: relative; margin: calc(-1 * max(20px, env(safe-area-inset-top))) -16px 0; padding: 200px 16px 8px;
+  background: url('/ex/22-1.webp') center 25% / cover no-repeat;
+}
+.onboard-hero::before { content: ''; position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(10,10,11,0.1), rgba(10,10,11,0.6) 55%, var(--bg)); }
+.onboard-hero > * { position: relative; }
+.brand h1 { font-size: 4.4rem; line-height: 0.9; }
+.brand-tag { color: #d6d6db; }
+
+/* Temporitzadors */
+.overlay { background: var(--bg); }
+.sheet { background: var(--overlay); }
+.overlay-kicker { text-transform: uppercase; }
+.ring-fill { stroke: var(--ink); }
+.overlay.work .ring-fill.work { stroke: var(--action); }
+
+/* Valoració, compte i progrés */
+.option { border-color: var(--line); background: var(--surface); }
+.option.on { border-color: var(--ink); box-shadow: inset 6px 0 0 var(--action); }
+.star { background: var(--surface-2); }
+.star.on { background: var(--ink); color: var(--bg); }
+.level-card { border-top-color: var(--ink); }
+.stats { border-top-color: var(--ink); }
+.chart-bar { fill: #5a5a63; }
+.chart-bar.on { fill: var(--action); }
+.chart-line { stroke: var(--action); }
+.chart-dot { fill: var(--action); stroke: var(--surface); }
+.chart-dot.on { fill: var(--ink); stroke: var(--action); }
+.daily, .protect { border: 0; box-shadow: inset 4px 0 0 var(--action); }
+.assess-card { border: 0; border-radius: var(--radius); }
+.assess-card strong { text-transform: uppercase; }
+.finish-row .btn { letter-spacing: 0.03em; font-size: 0.85rem; padding: 10px 12px; }

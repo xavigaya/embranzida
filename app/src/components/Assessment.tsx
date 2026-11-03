@@ -31,6 +31,7 @@ const EQUIPMENT = [
   { id: 'politja', label: 'Politges i màquines' },
   { id: 'barra fixa', label: 'Barra de dominades' },
   { id: 'cardio', label: 'Bici, cinta o el·líptica' },
+  { id: 'corda', label: 'Corda de saltar' },
 ]
 
 const SQUAT = [

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { CATALOG } from '../data/catalog'
+import { CATALOG, mediaFrames } from '../data/catalog'
 import { db } from '../lib/db'
 import type { HistoryEntry } from '../lib/loads'
 import { epley1RM, fmtKg, suggestNext } from '../lib/progression'
@@ -239,6 +239,10 @@ export function Today(props: Props) {
   const pct = Math.round((doneSets / Math.max(1, totalSets)) * 100)
   const tIso = todayIso()
   const [titleMain, ...titleRest] = session.title.split(' · ')
+  const heroEx =
+    session.prescriptions.find((p) => p.block === 'principal' && mediaFrames(p.exercise.id)?.[0].endsWith('.webp')) ??
+    session.prescriptions.find((p) => mediaFrames(p.exercise.id)?.[0].endsWith('.webp'))
+  const heroSrc = heroEx ? mediaFrames(heroEx.exercise.id)![1] : null
   const status = done
     ? `Feta el ${fmtDay(done.date, { weekday: 'long', day: 'numeric' })}`
     : session.date === tIso
@@ -287,25 +291,21 @@ export function Today(props: Props) {
           ))}
         </ol>
 
+      </header>
+
+      <section className="hero" style={heroSrc ? { backgroundImage: `url(${heroSrc})` } : undefined}>
         <div className="session-title">
           <p className={`session-status ${done ? 'done' : isNext ? 'next' : ''}`}>{cap(status)}</p>
           <h1>{titleMain}</h1>
           {titleRest.length > 0 && <p className="today-sub">{cap(titleRest.join(', '))}</p>}
         </div>
-      </header>
-
-      {isNext && !done && topSlot}
-
-      {!done && notice && <p className="date-note">{notice}</p>}
-      {session.deload && !done && <p className="date-note deload">Setmana de descàrrega: menys sèries i càrregues una mica més baixes per recuperar.</p>}
-
       {!done && !started && (
         <dl className="session-facts">
           <div>
-            <dt>Durada</dt>
+            <dt>Durada aprox.</dt>
             <dd>
               {estimateMinutes(session)}
-              <small>min aprox.</small>
+              <small>min</small>
             </dd>
           </div>
           <div>
@@ -339,6 +339,13 @@ export function Today(props: Props) {
         </dl>
       )}
 
+      </section>
+
+      {isNext && !done && topSlot}
+
+      {!done && notice && <p className="date-note">{notice}</p>}
+      {session.deload && !done && <p className="date-note deload">Setmana de descàrrega: menys sèries i càrregues una mica més baixes per recuperar.</p>}
+
       {started && !done && (
         <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
           <div className="progress-bar" style={{ width: `${pct}%` }} />
@@ -363,7 +370,10 @@ export function Today(props: Props) {
               {newBlock && <h2 className="block-head">{BLOCK_LABEL[p.block]}</h2>}
               <div className={`ex ${isActive ? 'active' : ''} ${complete ? 'complete' : ''} ${started ? '' : 'preview'}`}>
                 <button type="button" className="ex-head" onClick={() => setActiveId(isActive && !started ? null : p.id)} aria-expanded={isActive}>
-                  <span className="ex-num">{complete ? '✓' : i + 1}</span>
+                  <span className="ex-thumb">
+                    {mediaFrames(p.exercise.id) && <img src={mediaFrames(p.exercise.id)![0]} alt="" loading="lazy" />}
+                    <span className="ex-num">{complete ? '✓' : i + 1}</span>
+                  </span>
                   <span className="ex-title">
                     <strong>{p.exercise.name}</strong>
                     <Meta parts={prescriptionLabel(p)} />
