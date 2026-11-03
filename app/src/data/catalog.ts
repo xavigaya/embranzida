@@ -46,7 +46,7 @@ export function available(e: CatalogExercise, equipment: string[], level: LevelI
   return true
 }
 
-// Imatges de l'exercici: 2 fotogrames (posició inicial i final)
+// Il·lustracions pròpies de l'exercici: 2 fotogrames (posició inicial i final)
 export function mediaFrames(id: string): string[] | null {
   const e = CATALOG.find((x) => x.id === id)
   if (!e?.media) return null

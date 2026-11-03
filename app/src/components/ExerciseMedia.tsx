@@ -29,7 +29,6 @@ export function ExerciseMedia({ exerciseId, compact = false }: { exerciseId: str
         ))}
         <span className="ex-media-step">{k === 0 ? 'Inici' : 'Final'}</span>
       </button>
-      {!compact && e?.media?.type === 'foto' && <figcaption>Imatge: free-exercise-db (domini públic)</figcaption>}
     </figure>
   )
 }

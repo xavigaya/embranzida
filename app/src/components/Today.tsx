@@ -240,8 +240,8 @@ export function Today(props: Props) {
   const tIso = todayIso()
   const [titleMain, ...titleRest] = session.title.split(' · ')
   const heroEx =
-    session.prescriptions.find((p) => p.block === 'principal' && mediaFrames(p.exercise.id)?.[0].endsWith('.webp')) ??
-    session.prescriptions.find((p) => mediaFrames(p.exercise.id)?.[0].endsWith('.webp'))
+    session.prescriptions.find((p) => p.block === 'principal' && mediaFrames(p.exercise.id)) ??
+    session.prescriptions.find((p) => mediaFrames(p.exercise.id))
   const heroSrc = heroEx ? mediaFrames(heroEx.exercise.id)![1] : null
   const status = done
     ? `Feta el ${fmtDay(done.date, { weekday: 'long', day: 'numeric' })}`
@@ -293,7 +293,8 @@ export function Today(props: Props) {
 
       </header>
 
-      <section className="hero" style={heroSrc ? { backgroundImage: `url(${heroSrc})` } : undefined}>
+      <section className="hero">
+        {heroSrc && <img className="hero-art" src={heroSrc} alt="" />}
         <div className="session-title">
           <p className={`session-status ${done ? 'done' : isNext ? 'next' : ''}`}>{cap(status)}</p>
           <h1>{titleMain}</h1>
