@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Account } from './components/Account'
 import { Assessment } from './components/Assessment'
 import { DailyCheck } from './components/DailyCheck'
@@ -7,7 +7,7 @@ import { PlanEditor } from './components/PlanEditor'
 import { Progress } from './components/Progress'
 import { TabBar, type Tab } from './components/TabBar'
 import { Onboarding } from './components/Onboarding'
-import { Today, type Alternative, type FinishData, type WeekDay } from './components/Today'
+import { Today, type Alternative, type DoneInfo, type FinishData, type WeekDay } from './components/Today'
 import { CONSENT_VERSION } from './config'
 import { available, CATALOG } from './data/catalog'
 import { db, type DoneRow } from './lib/db'
@@ -74,6 +74,7 @@ export default function App() {
   const [measurements, setMeasurements] = useState<Measurement[]>([])
   const [dailySkipped, setDailySkipped] = useState(false)
   const [tab, setTab] = useState<Tab>('avui')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showLegal, setShowLegal] = useState(false)
   const [account, setAccount] = useState<AccountInfo | null>(null)
   const [protectDismissed, setProtectDismissed] = useState(() => localStorage.getItem('emb.protectDismissed') === '1')
@@ -120,6 +121,28 @@ export default function App() {
     return () => window.removeEventListener('online', onOnline)
   }, [runSync])
 
+  // Canvis de sessió fets des d'una altra pestanya (p. ex. en obrir l'enllaç del correu)
+  const stageRef = useRef(stage)
+  stageRef.current = stage
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'USER_UPDATED' || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        setTimeout(async () => {
+          setAccount(await accountInfo())
+          if (event === 'SIGNED_IN' && session && !session.user.is_anonymous && stageRef.current === 'onboarding') onLoggedInRef.current()
+        })
+      }
+    })
+    const onVis = async () => {
+      if (document.visibilityState === 'visible') setAccount(await accountInfo())
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      data.subscription.unsubscribe()
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [])
+
   // Carrega a l'estat de l'app les dades guardades al mòbil
   async function loadLocal() {
     const [lastPlan, rows, hist, count, dailyRows, meas] = await Promise.all([
@@ -148,6 +171,7 @@ export default function App() {
 
   // Entrada amb correu des d'un altre mòbil: recupera totes les dades del compte
   const onLoggedIn = async () => {
+    if (stageRef.current === 'loading') return
     setStage('loading')
     try {
       const r = await restoreFromCloud()
@@ -162,6 +186,9 @@ export default function App() {
       setStage('onboarding')
     }
   }
+
+  const onLoggedInRef = useRef(onLoggedIn)
+  onLoggedInRef.current = onLoggedIn
 
   const createAccount = async (name: string, age: string | null): Promise<boolean> => {
     setBusy(true)
@@ -299,6 +326,17 @@ export default function App() {
     [plan, done],
   )
 
+  // Sessió que es mostra: la triada a la setmana o, per defecte, la que toca
+  const viewed = useMemo(
+    () => (plan && selectedId ? plan.sessions.find((s) => s.id === selectedId) ?? next : next),
+    [plan, selectedId, next],
+  )
+  const viewedDone: DoneInfo | undefined = useMemo(() => {
+    if (!viewed || !done.has(viewed.id)) return undefined
+    const row = doneRows.find((d) => d.plannedSessionId === viewed.id)!
+    return { date: row.date, rpe: row.rpe, sets: history.filter((h) => h.sessionLogId === row.sessionLogId).sort((a, b) => a.date.localeCompare(b.date)) }
+  }, [viewed, done, doneRows, history])
+
   // Regla R05: fatiga acumulada segons l'estat diari i l'esforç de les últimes sessions
   const fatigue = useMemo(() => {
     const rpes = [...doneRows].sort((a, b) => a.date.localeCompare(b.date)).map((d) => d.rpe)
@@ -307,16 +345,30 @@ export default function App() {
 
   // Aplica substitucions d'exercicis, reducció per fatiga i càrregues suggerides
   const prepared = useMemo((): { session: PlannedSession; advice: Record<string, string> } | null => {
-    if (!next || !plan) return null
-    const reduce = !!fatigue && !next.deload
+    if (!viewed || !plan) return null
+    // Sessió ja feta: es mostren els exercicis que es van fer realment
+    if (viewedDone) {
+      const order: string[] = []
+      for (const h of viewedDone.sets) if (!order.includes(h.exerciseId)) order.push(h.exerciseId)
+      const prescriptions = order.map((exId) => {
+        const p = viewed.prescriptions.find((x) => x.exercise.id === exId)
+        const e = byId.get(exId)
+        const count = viewedDone.sets.filter((h) => h.exerciseId === exId).length
+        return p
+          ? { ...p, sets: count }
+          : ({ id: exId, exercise: { id: exId, name: e?.name ?? 'Exercici', cue: e?.cue ?? '' }, block: 'principal', track: e?.track ?? 'reps', sets: count, restS: 0 } as Prescription)
+      })
+      return { session: { ...viewed, prescriptions }, advice: {} }
+    }
+    const reduce = !!fatigue && !viewed.deload
     const advice: Record<string, string> = {}
-    const prescriptions = next.prescriptions.map((p0) => {
+    const prescriptions = viewed.prescriptions.map((p0) => {
       let p = p0
       let guard = 0
       while (swaps[p.exercise.id] && guard++ < 5) p = swapExercise(p, swaps[p.exercise.id])
       if (sessionSwaps[p0.id]) p = swapExercise(p, sessionSwaps[p0.id])
       if (reduce && p.block === 'principal') p = { ...p, sets: reducedSets(p.sets) }
-      const a = adviseLoad(p, history, { beginner: plan.inputs.level === 'principiant', deload: next.deload })
+      const a = adviseLoad(p, history, { beginner: plan.inputs.level === 'principiant', deload: viewed.deload })
       if (a) {
         advice[p.id] = a.reason
         p = { ...p, loadKg: a.loadKg }
@@ -327,16 +379,24 @@ export default function App() {
       }
       return p
     })
-    return { session: { ...next, prescriptions }, advice }
-  }, [next, plan, swaps, sessionSwaps, history, fatigue])
+    return { session: { ...viewed, prescriptions }, advice }
+  }, [viewed, viewedDone, plan, swaps, sessionSwaps, history, fatigue])
 
   const week: WeekDay[] = useMemo(() => {
-    if (!plan || !next) return []
+    if (!plan || !viewed) return []
     return plan.sessions
-      .filter((s) => s.week === next.week)
+      .filter((s) => s.week === viewed.week)
       .sort((a, b) => a.order - b.order)
-      .map((s) => ({ id: s.id, date: s.date, title: s.title, state: done.has(s.id) ? 'fet' : s.id === next.id ? 'actual' : 'pendent' }))
-  }, [plan, next, done])
+      .map((s) => ({ id: s.id, date: s.date, title: s.title, state: done.has(s.id) ? 'fet' : s.id === next?.id ? 'actual' : 'pendent' }))
+  }, [plan, viewed, next, done])
+
+  // Canvi de setmana: es tria la sessió que toca si és d'aquella setmana, o la primera
+  const goWeek = (w: number) => {
+    if (!plan) return
+    const list = plan.sessions.filter((s) => s.week === w).sort((a, b) => a.order - b.order)
+    if (!list.length) return
+    setSelectedId((list.find((s) => s.id === next?.id) ?? list.find((s) => !done.has(s.id)) ?? list[0]).id)
+  }
 
   const alternatives = useCallback(
     (p: Prescription): Alternative[] => {
@@ -411,6 +471,7 @@ export default function App() {
     setHistory([...history, ...entries])
     setDoneRows([...doneRows, doneRow])
     setSessionSwaps({})
+    setSelectedId(null)
 
     const byEx = new Map<string, number>()
     for (const x of draft.sets) {
@@ -616,7 +677,17 @@ export default function App() {
         session={prepared.session}
         advice={prepared.advice}
         week={week}
-        alias={alias}
+        selectedId={prepared.session.id}
+        onSelectDay={(id) => setSelectedId(id)}
+        isNext={prepared.session.id === next?.id}
+        done={viewedDone}
+        weekNav={{
+          week: prepared.session.week,
+          weeks: plan.weeks,
+          deloadWeeks: [...new Set(plan.sessions.filter((x) => x.deload).map((x) => x.week))],
+          onPrev: prepared.session.week > 1 ? () => goWeek(prepared.session.week - 1) : undefined,
+          onNext: prepared.session.week < plan.weeks ? () => goWeek(prepared.session.week + 1) : undefined,
+        }}
         syncLabel={syncLabel}
         onChipClick={activateCloud}
         alternatives={alternatives}
@@ -628,7 +699,6 @@ export default function App() {
             {dailyCard}
           </>
         }
-        lane={{ weeks: plan.weeks, deloadWeeks: [...new Set(plan.sessions.filter((x) => x.deload).map((x) => x.week))] }}
         notice={fatigue && !prepared.session.deload ? `${fatigue}: avui farem un 25 % menys de sèries a la part principal.` : null}
       />
     )
@@ -637,7 +707,7 @@ export default function App() {
   return (
     <>
       {screen}
-      <TabBar tab={tab} onChange={(t) => (setTab(t), window.scrollTo(0, 0))} />
+      <TabBar tab={tab} onChange={(t) => (setTab(t), t === 'avui' && setSelectedId(null), window.scrollTo(0, 0))} />
       {legal}
     </>
   )

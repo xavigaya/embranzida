@@ -8,10 +8,13 @@ type Props = {
   onVerify: (email: string, code: string) => Promise<string | null>
   onDone: () => void
   onCancel?: () => void
+  // Comprova si l'usuari ja ha obert l'enllaç del correu (quan el correu porta enllaç i no codi)
+  onCheckLink?: (email: string) => Promise<boolean>
+  sentNote?: string
 }
 
 // Flux en dos passos: escriure el correu → escriure el codi rebut
-export function EmailCode({ sendLabel, verifyLabel, onSend, onVerify, onDone, onCancel }: Props) {
+export function EmailCode({ sendLabel, verifyLabel, onSend, onVerify, onDone, onCancel, onCheckLink, sentNote }: Props) {
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
   const [sent, setSent] = useState(false)
@@ -25,6 +28,15 @@ export function EmailCode({ sendLabel, verifyLabel, onSend, onVerify, onDone, on
     setBusy(false)
     if (err) setError(err)
     else setSent(true)
+  }
+  const check = async () => {
+    if (!onCheckLink) return
+    setBusy(true)
+    setError(null)
+    const ok = await onCheckLink(email)
+    setBusy(false)
+    if (ok) onDone()
+    else setError('Encara no consta com a confirmat. Obre l’enllaç del correu i torna-ho a provar.')
   }
   const verify = async () => {
     setBusy(true)
@@ -52,11 +64,17 @@ export function EmailCode({ sendLabel, verifyLabel, onSend, onVerify, onDone, on
       ) : (
         <>
           <p className="muted">
-            T’hem enviat un codi a <strong>{email.trim()}</strong>. Pot trigar un minut i, de vegades, arriba a la
-            carpeta de correu brossa.
+            T’hem enviat un correu a <strong>{email.trim()}</strong>. Obre l’enllaç que conté{onCheckLink ? ' i torna aquí' : ''}, o
+            escriu el codi si n’hi ha. Pot trigar un minut i, de vegades, arriba a la carpeta de correu brossa.
           </p>
+          {sentNote && <p className="notice warn-box small">{sentNote}</p>}
+          {onCheckLink && (
+            <button type="button" className="btn primary block" onClick={check} disabled={busy}>
+              {busy ? 'Comprovant…' : 'Ja he obert l’enllaç'}
+            </button>
+          )}
           <label className="field">
-            <span>Codi</span>
+            <span>Codi (si el correu en porta)</span>
             <input
               className="code-input"
               inputMode="numeric"
@@ -89,7 +107,7 @@ export function EmailCode({ sendLabel, verifyLabel, onSend, onVerify, onDone, on
             {busy ? 'Enviant…' : sendLabel}
           </button>
         ) : (
-          <button type="button" className="btn primary" disabled={code.length < 6 || busy} onClick={verify}>
+          <button type="button" className={`btn ${onCheckLink ? 'ghost' : 'primary'}`} disabled={code.length < 6 || busy} onClick={verify}>
             {busy ? 'Comprovant…' : verifyLabel}
           </button>
         )}

@@ -67,3 +67,17 @@ export async function touchLastSeen(userId: string) {
     /* sense connexió: ja es farà un altre dia */
   }
 }
+
+// Comprova si el correu ja consta com a confirmat (després d'obrir l'enllaç del correu)
+export async function emailConfirmed(email: string): Promise<boolean> {
+  await supabase.auth.refreshSession().catch(() => {})
+  const { data } = await supabase.auth.getUser()
+  const u = data.user
+  return !!u && !u.is_anonymous && (u.email ?? '').toLowerCase() === email.trim().toLowerCase()
+}
+
+// Entrada amb enllaç: hi ha sessió d'un compte amb correu?
+export async function signedInWithEmail(): Promise<boolean> {
+  const { data } = await supabase.auth.getSession()
+  return !!data.session && !data.session.user.is_anonymous
+}

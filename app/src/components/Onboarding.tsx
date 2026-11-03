@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { loginStart, loginVerify } from '../lib/auth'
+import { loginStart, loginVerify, signedInWithEmail } from '../lib/auth'
 import { EmailCode } from './EmailCode'
 
 type Props = {
@@ -38,14 +38,15 @@ export function Onboarding({ busy, error, onSubmit, onOffline, onShowLegal, onLo
       {login ? (
         <section className="card form">
           <h2>Entra al teu compte</h2>
-          <p className="muted">Escriu el correu que vas vincular al compte i t’enviarem un codi per entrar.</p>
+          <p className="muted">Escriu el correu que vas vincular al compte i t’enviarem un enllaç per entrar. Obre’l des d’aquest mateix mòbil.</p>
           <EmailCode
-            sendLabel="Envia’m el codi"
-            verifyLabel="Entra"
+            sendLabel="Envia’m l’enllaç"
+            verifyLabel="Entra amb el codi"
             onSend={loginStart}
             onVerify={loginVerify}
             onDone={onLoggedIn}
             onCancel={() => setLogin(false)}
+            onCheckLink={signedInWithEmail}
           />
         </section>
       ) : (

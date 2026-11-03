@@ -20,6 +20,7 @@ export type CatalogExercise = {
   target?: string
   muscles: string[]
   cue: string
+  media?: { type: 'foto' | 'dibuix'; src?: string; ref?: string }
 }
 
 export const exerciseId = (n: number) => `0e5a0000-0000-4000-8000-${String(n).padStart(12, '0')}`
@@ -43,4 +44,12 @@ export function available(e: CatalogExercise, equipment: string[], level: LevelI
   if (e.needs && !e.needs.every((x) => equipment.includes(x))) return false
   if (e.needsAny && !e.needsAny.some((x) => equipment.includes(x))) return false
   return true
+}
+
+// Imatges de l'exercici: 2 fotogrames (posició inicial i final)
+export function mediaFrames(id: string): string[] | null {
+  const e = CATALOG.find((x) => x.id === id)
+  if (!e?.media) return null
+  const ext = e.media.type === 'foto' ? 'webp' : 'svg'
+  return [0, 1].map((k) => `/ex/${e.n}-${k}.${ext}`)
 }

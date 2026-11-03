@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { collectAllData, deleteEverything, download, historyCsv } from '../lib/account'
-import { linkEmailStart, linkEmailVerify, type AccountInfo } from '../lib/auth'
+import { emailConfirmed, linkEmailStart, linkEmailVerify, type AccountInfo } from '../lib/auth'
 import { EmailCode } from './EmailCode'
 
 type Props = {
@@ -27,6 +27,7 @@ export function Account({ alias, cloud, syncLabel, pending, syncError, levelLabe
   const [typed, setTyped] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [linking, setLinking] = useState(false)
+  const [changing, setChanging] = useState(false)
   const stamp = new Date().toLocaleDateString('sv-SE')
 
   const exportJson = async () => {
@@ -82,12 +83,13 @@ export function Account({ alias, cloud, syncLabel, pending, syncError, levelLabe
             </button>
           ) : (
             <EmailCode
-              sendLabel="Envia’m el codi"
+              sendLabel="Envia’m el correu"
               verifyLabel="Vincula el correu"
               onSend={linkEmailStart}
               onVerify={linkEmailVerify}
               onDone={() => (setLinking(false), onLinked())}
               onCancel={() => setLinking(false)}
+              onCheckLink={emailConfirmed}
             />
           )}
         </section>
@@ -97,9 +99,25 @@ export function Account({ alias, cloud, syncLabel, pending, syncError, levelLabe
         <section className="card stack-sm">
           <h2>Compte protegit</h2>
           <p className="muted">
-            Vinculat a <strong>{account.email}</strong>. Des d’un altre mòbil, tria «Ja tinc un compte» a la pantalla
-            d’inici i entra amb aquest correu.
+            Vinculat a <strong>{account.email}</strong>. Des d’un altre mòbil, tria «Ja tinc un compte amb correu» a la
+            pantalla d’inici i entra amb aquest correu.
           </p>
+          {!changing ? (
+            <button type="button" className="btn ghost block" onClick={() => setChanging(true)}>
+              Canvia el correu
+            </button>
+          ) : (
+            <EmailCode
+              sendLabel="Canvia el correu"
+              verifyLabel="Confirma amb el codi"
+              onSend={linkEmailStart}
+              onVerify={linkEmailVerify}
+              onCheckLink={emailConfirmed}
+              sentNote="Per seguretat, és possible que també hagis de confirmar el canvi des del correu actual."
+              onDone={() => (setChanging(false), onLinked())}
+              onCancel={() => setChanging(false)}
+            />
+          )}
         </section>
       )}
 

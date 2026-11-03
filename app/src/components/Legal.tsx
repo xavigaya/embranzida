@@ -102,6 +102,14 @@ export function Legal({ onBack }: { onBack: () => void }) {
       </section>
 
       <section className="card legal-sec">
+        <h2>Imatges dels exercicis</h2>
+        <p>
+          Les fotografies dels exercicis provenen de free-exercise-db (github.com/yuhonas/free-exercise-db), publicades
+          en domini públic. Alguns exercicis tenen il·lustracions pròpies d’Embranzida.
+        </p>
+      </section>
+
+      <section className="card legal-sec">
         <h2>Els teus drets</h2>
         <p>
           Pots accedir a les teves dades, corregir-les, esborrar-les, demanar-ne la portabilitat i retirar el

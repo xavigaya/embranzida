@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { ExerciseMedia } from './ExerciseMedia'
 
 type Props = {
   endAt: number
   totalS: number
   nextLabel: string
+  nextExerciseId?: string
   onAdd: (s: number) => void
   onDone: () => void
 }
@@ -24,7 +26,7 @@ function beep() {
   }
 }
 
-export function RestTimer({ endAt, totalS, nextLabel, onAdd, onDone }: Props) {
+export function RestTimer({ endAt, totalS, nextLabel, nextExerciseId, onAdd, onDone }: Props) {
   const [now, setNow] = useState(Date.now())
   const fired = useRef(false)
 
@@ -71,6 +73,11 @@ export function RestTimer({ endAt, totalS, nextLabel, onAdd, onDone }: Props) {
         </span>
       </div>
       <p className="overlay-next">Següent: {nextLabel}</p>
+      {nextExerciseId && (
+        <div className="work-media">
+          <ExerciseMedia exerciseId={nextExerciseId} compact />
+        </div>
+      )}
       <div className="overlay-actions">
         <button type="button" className="btn ghost" onClick={() => onAdd(15)}>
           +15 s

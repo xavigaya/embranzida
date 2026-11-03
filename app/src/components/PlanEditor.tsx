@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { CATALOG } from '../data/catalog'
 import { defaultPrescription, sortByBlock, WEEKDAYS } from '../lib/manualPlan'
 import type { Block, Prescription, TemplateSession } from '../lib/types'
+import { ExerciseMedia } from './ExerciseMedia'
 import { Stepper } from './Stepper'
 
 type Props = {
@@ -252,6 +253,8 @@ function ItemSheet({
     <div className="overlay sheet" role="dialog" aria-label={p.exercise.name}>
       <div className="sheet-card tall">
         <h2>{p.exercise.name}</h2>
+        <ExerciseMedia exerciseId={p.exercise.id} compact />
+        <p className="cue">{p.exercise.cue}</p>
         <div className="chips tight">
           {BLOCKS.map((b) => (
             <button key={b.id} type="button" className={`chip ${p.block === b.id ? 'on' : ''}`} onClick={() => set({ block: b.id })}>

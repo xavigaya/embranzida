@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { CATALOG } from '../data/catalog'
 import { db } from '../lib/db'
+import type { HistoryEntry } from '../lib/loads'
 import { epley1RM, fmtKg, suggestNext } from '../lib/progression'
 import type { Block, PlannedSession, Prescription, SessionDraft, SetLog } from '../lib/types'
-import { RestTimer } from './RestTimer'
-import { CATALOG } from '../data/catalog'
+import { ExerciseMedia } from './ExerciseMedia'
 import { PlanLane } from './PlanLane'
 import { Plates } from './Plates'
+import { RestTimer } from './RestTimer'
 import { Stepper } from './Stepper'
+import { WorkTimer } from './WorkTimer'
 
 const needsBar = new Set(CATALOG.filter((e) => e.needs?.includes('barra')).map((e) => e.id))
 
@@ -19,19 +22,23 @@ export type FinishData = {
 
 export type WeekDay = { id: string; date: string; title: string; state: 'fet' | 'actual' | 'pendent' }
 export type Alternative = { id: string; name: string }
+export type DoneInfo = { date: string; rpe?: number | null; sets: HistoryEntry[] }
 
 type Props = {
   session: PlannedSession
   advice: Record<string, string> // prescriptionId → motiu de la càrrega suggerida
   week: WeekDay[]
-  alias: string
+  selectedId: string
+  onSelectDay: (id: string) => void
+  weekNav: { week: number; weeks: number; deloadWeeks: number[]; onPrev?: () => void; onNext?: () => void }
+  isNext: boolean // és la sessió que toca
+  done?: DoneInfo // si ja està feta: vista de només lectura
   syncLabel: string
   onChipClick?: () => void
   alternatives: (p: Prescription) => Alternative[]
   onSwap: (p: Prescription, toId: string, permanent: boolean) => void
   onFinish: (data: FinishData) => void
   topSlot?: ReactNode
-  lane: { weeks: number; deloadWeeks: number[] }
   notice?: string | null
 }
 
@@ -39,7 +46,8 @@ type Entry = { load: number; reps: number; rir: number; duration: number }
 
 const todayIso = () => new Date().toLocaleDateString('sv-SE') // YYYY-MM-DD en hora local
 const fmtDay = (iso: string, opts: Intl.DateTimeFormatOptions) =>
-  new Intl.DateTimeFormat('ca', { ...opts, timeZone: 'UTC' }).format(new Date(`${iso}T00:00:00Z`))
+  new Intl.DateTimeFormat('ca', { ...opts, timeZone: 'UTC' }).format(new Date(`${iso.slice(0, 10)}T00:00:00Z`))
+const cap = (s: string) => s.replace(/^./, (c) => c.toUpperCase())
 
 const BLOCK_LABEL: Record<Block, string> = {
   escalfament: 'Escalfament i mobilitat',
@@ -65,6 +73,15 @@ function prescriptionLabel(p: Prescription): string[] {
   return parts
 }
 
+// Durada estimada: treball (≈4 s per repetició o la durada indicada) + descansos + 1 min de canvi per exercici
+export function estimateMinutes(s: PlannedSession) {
+  const secs = s.prescriptions.reduce((a, p) => {
+    const work = p.durationS ?? ((p.repsMin ?? 8) + (p.repsMax ?? 12)) * 2
+    return a + p.sets * work + Math.max(0, p.sets - 1) * p.restS + 60
+  }, 0)
+  return Math.max(5, Math.round(secs / 60 / 5) * 5)
+}
+
 const Meta = ({ parts }: { parts: string[] }) => (
   <span className="meta">
     {parts.map((t) => (
@@ -73,7 +90,7 @@ const Meta = ({ parts }: { parts: string[] }) => (
   </span>
 )
 
-function setLabel(s: SetLog) {
+function setLabel(s: { durationS?: number; reps?: number; loadKg?: number; rir?: number }) {
   if (s.durationS != null && s.reps == null) return <b>{fmtDur(s.durationS)}</b>
   return (
     <>
@@ -102,35 +119,37 @@ function useWakeLock(active: boolean) {
   }, [active])
 }
 
-export function Today({ session, advice, week, syncLabel, onChipClick, alternatives, onSwap, onFinish, topSlot, notice, lane }: Props) {
+export function Today(props: Props) {
+  const { session, advice, week, selectedId, onSelectDay, weekNav, isNext, done, syncLabel, onChipClick, alternatives, onSwap, onFinish, topSlot, notice } = props
   const [draft, setDraft] = useState<SessionDraft | null>(null)
-  const [activeId, setActiveId] = useState<string>(session.prescriptions[0]?.id)
+  const [loaded, setLoaded] = useState(false)
+  const [activeId, setActiveId] = useState<string | null>(null)
   const [entry, setEntry] = useState<Entry>({ load: 0, reps: 0, rir: 2, duration: 0 })
-  const [rest, setRest] = useState<{ endAt: number; totalS: number; next: string } | null>(null)
+  const [rest, setRest] = useState<{ endAt: number; totalS: number; next: string; nextId?: string } | null>(null)
+  const [timing, setTiming] = useState(false)
   const [finishing, setFinishing] = useState(false)
   const [swapping, setSwapping] = useState<Prescription | null>(null)
+  const listRef = useRef<HTMLOListElement>(null)
 
-  useWakeLock(true)
+  const started = !!draft
+  useWakeLock(started)
 
-  // Recupera l'entrenament en curs (si n'hi ha) o en comença un de nou
+  // Recupera l'entrenament en curs d'aquesta sessió, si n'hi ha
   useEffect(() => {
+    setLoaded(false)
+    setDraft(null)
+    setActiveId(null)
     db.drafts
       .where('plannedSessionId')
       .equals(session.id)
       .first()
       .then((d) => {
-        const fresh: SessionDraft = d ?? {
-          id: crypto.randomUUID(),
-          plannedSessionId: session.id,
-          startedAt: new Date().toISOString(),
-          sets: [],
+        setDraft(d ?? null)
+        if (d) {
+          const firstOpen = session.prescriptions.find((p) => d.sets.filter((s) => s.prescriptionId === p.id).length < p.sets)
+          setActiveId(firstOpen?.id ?? null)
         }
-        if (!d) db.drafts.put(fresh)
-        setDraft(fresh)
-        const firstOpen = session.prescriptions.find(
-          (p) => fresh.sets.filter((s) => s.prescriptionId === p.id).length < p.sets,
-        )
-        if (firstOpen) setActiveId(firstOpen.id)
+        setLoaded(true)
       })
     // només en canviar de sessió
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -138,7 +157,7 @@ export function Today({ session, advice, week, syncLabel, onChipClick, alternati
 
   const sets = useMemo(() => draft?.sets ?? [], [draft])
   const setsOf = (pid: string) => sets.filter((s) => s.prescriptionId === pid)
-  const active = session.prescriptions.find((p) => p.id === activeId) ?? session.prescriptions[0]
+  const active = session.prescriptions.find((p) => p.id === activeId) ?? null
   const totalSets = session.prescriptions.reduce((a, p) => a + p.sets, 0)
   const doneSets = session.prescriptions.reduce((a, p) => a + Math.min(p.sets, setsOf(p.id).length), 0)
 
@@ -155,12 +174,25 @@ export function Today({ session, advice, week, syncLabel, onChipClick, alternati
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, draft?.id, active?.exercise.id, active?.loadKg])
 
+  // En canviar d'exercici actiu, el porta a la vista
+  useEffect(() => {
+    if (!activeId || !started) return
+    const el = listRef.current?.querySelector(`[data-pid="${activeId}"]`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [activeId, started])
+
   const save = (d: SessionDraft) => {
     setDraft(d)
     db.drafts.put(d)
   }
 
-  const register = () => {
+  const start = () => {
+    const d: SessionDraft = { id: crypto.randomUUID(), plannedSessionId: session.id, startedAt: new Date().toISOString(), sets: [] }
+    save(d)
+    setActiveId(session.prescriptions[0]?.id ?? null)
+  }
+
+  const register = (durationOverride?: number) => {
     if (!draft || !active) return
     const n = setsOf(active.id).length
     const timed = active.track === 'time'
@@ -172,20 +204,19 @@ export function Today({ session, advice, week, syncLabel, onChipClick, alternati
       loadKg: active.track === 'load_reps' && entry.load > 0 ? entry.load : undefined,
       reps: timed ? undefined : entry.reps,
       rir: timed || active.rirTarget == null ? undefined : entry.rir,
-      durationS: timed ? entry.duration : undefined,
+      durationS: timed ? (durationOverride ?? entry.duration) : undefined,
       completedAt: new Date().toISOString(),
     }
     const next: SessionDraft = { ...draft, sets: [...draft.sets, log] }
     save(next)
+    navigator.vibrate?.(30)
 
     const exerciseDone = n + 1 >= active.sets
-    const nextOpen = session.prescriptions.find(
-      (p) => next.sets.filter((s) => s.prescriptionId === p.id).length < p.sets,
-    )
-    if (exerciseDone && nextOpen) setActiveId(nextOpen.id)
+    const nextOpen = session.prescriptions.find((p) => next.sets.filter((s) => s.prescriptionId === p.id).length < p.sets)
+    if (exerciseDone) setActiveId(nextOpen?.id ?? null)
     if (!nextOpen || active.restS <= 0) return
-    const label = exerciseDone ? nextOpen.exercise.name : `${active.exercise.name} · sèrie ${n + 2}`
-    setRest({ endAt: Date.now() + active.restS * 1000, totalS: active.restS, next: label })
+    const label = exerciseDone ? nextOpen.exercise.name : `${active.exercise.name}, sèrie ${n + 2}`
+    setRest({ endAt: Date.now() + active.restS * 1000, totalS: active.restS, next: label, nextId: nextOpen.exercise.id })
   }
 
   const undo = () => {
@@ -196,18 +227,32 @@ export function Today({ session, advice, week, syncLabel, onChipClick, alternati
     save({ ...draft, sets: draft.sets.filter((s) => s.id !== lastId) })
   }
 
-  if (!draft) return <main className="screen" aria-busy="true" />
+  const discard = () => {
+    if (!draft) return
+    db.drafts.delete(draft.id)
+    setDraft(null)
+    setActiveId(null)
+  }
+
+  if (!loaded) return <main className="screen" aria-busy="true" />
 
   const pct = Math.round((doneSets / Math.max(1, totalSets)) * 100)
   const tIso = todayIso()
-  const dateNote =
-    session.date === tIso ? null : session.date < tIso ? 'Sessió pendent d’un dia anterior' : `Prevista per al ${fmtDay(session.date, { weekday: 'long', day: 'numeric' })}`
+  const [titleMain, ...titleRest] = session.title.split(' · ')
+  const status = done
+    ? `Feta el ${fmtDay(done.date, { weekday: 'long', day: 'numeric' })}`
+    : session.date === tIso
+      ? 'Avui'
+      : session.date < tIso
+        ? 'Pendent d’un dia anterior'
+        : `Prevista per al ${fmtDay(session.date, { weekday: 'long', day: 'numeric' })}`
+  const doneSetsOf = (exId: string) => (done?.sets ?? []).filter((h) => h.exerciseId === exId)
 
   return (
     <main className="screen today">
       <header className="today-head">
         <div className="today-top">
-          <p className="today-date">{fmtDay(tIso, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+          <p className="today-date">{cap(fmtDay(tIso, { weekday: 'long', day: 'numeric', month: 'long' }))}</p>
           {onChipClick ? (
             <button type="button" className="sync-chip action" onClick={onChipClick}>
               {syncLabel}: activa el núvol
@@ -216,73 +261,141 @@ export function Today({ session, advice, week, syncLabel, onChipClick, alternati
             <span className="sync-chip">{syncLabel}</span>
           )}
         </div>
-        <h1>{session.title.split(' · ')[0]}</h1>
-        {session.title.includes(' · ') && (
-          <p className="today-sub">
-            {session.title
-              .split(' · ')
-              .slice(1)
-              .join(', ')
-              .replace(/^./, (c) => c.toUpperCase())}
-          </p>
-        )}
-        <PlanLane weeks={lane.weeks} current={session.week} deloadWeeks={lane.deloadWeeks} deload={session.deload} />
+        <PlanLane
+          weeks={weekNav.weeks}
+          current={weekNav.week}
+          deloadWeeks={weekNav.deloadWeeks}
+          deload={weekNav.deloadWeeks.includes(weekNav.week)}
+          onPrev={weekNav.onPrev}
+          onNext={weekNav.onNext}
+        />
+
+        <ol className="week-strip" aria-label="Sessions de la setmana">
+          {week.map((d) => (
+            <li key={d.id}>
+              <button
+                type="button"
+                className={`${d.state} ${d.id === selectedId ? 'sel' : ''} ${d.date === tIso ? 'today' : ''}`}
+                aria-current={d.id === selectedId ? 'true' : undefined}
+                onClick={() => onSelectDay(d.id)}
+              >
+                <span className="wd">{fmtDay(d.date, { weekday: 'short' }).replace('.', '')}</span>
+                <span className="wn">{fmtDay(d.date, { day: 'numeric' })}</span>
+                <span className="wt">{d.state === 'fet' ? 'Feta' : d.title.split(' · ')[0]}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+
+        <div className="session-title">
+          <p className={`session-status ${done ? 'done' : isNext ? 'next' : ''}`}>{cap(status)}</p>
+          <h1>{titleMain}</h1>
+          {titleRest.length > 0 && <p className="today-sub">{cap(titleRest.join(', '))}</p>}
+        </div>
       </header>
 
-      <ol className="week-strip" aria-label="Sessions d’aquesta setmana">
-        {week.map((d) => (
-          <li key={d.id} className={d.state}>
-            <span className="wd">{fmtDay(d.date, { weekday: 'short' }).replace('.', '')}</span>
-            <span className="wn">{fmtDay(d.date, { day: 'numeric' })}</span>
-            <span className="wt">{d.title.split(' · ')[0]}</span>
-          </li>
-        ))}
-      </ol>
+      {isNext && !done && topSlot}
 
-      {topSlot}
+      {!done && notice && <p className="date-note">{notice}</p>}
+      {session.deload && !done && <p className="date-note deload">Setmana de descàrrega: menys sèries i càrregues una mica més baixes per recuperar.</p>}
 
-      {dateNote && <p className="date-note">{dateNote}. La pots fer ara.</p>}
-      {notice && <p className="date-note">{notice}</p>}
-      {session.deload && (
-        <p className="date-note deload">Setmana de descàrrega: menys sèries i càrregues una mica més baixes per recuperar.</p>
+      {!done && !started && (
+        <dl className="session-facts">
+          <div>
+            <dt>Durada</dt>
+            <dd>
+              {estimateMinutes(session)}
+              <small>min aprox.</small>
+            </dd>
+          </div>
+          <div>
+            <dt>Exercicis</dt>
+            <dd>{session.prescriptions.length}</dd>
+          </div>
+          <div>
+            <dt>Sèries</dt>
+            <dd>{totalSets}</dd>
+          </div>
+        </dl>
       )}
 
+      {done && (
+        <dl className="session-facts">
+          <div>
+            <dt>Sèries fetes</dt>
+            <dd>{done.sets.length}</dd>
+          </div>
+          <div>
+            <dt>Volum</dt>
+            <dd>
+              {Math.round(done.sets.reduce((a, s) => a + (s.loadKg ?? 0) * (s.reps ?? 0), 0)).toLocaleString('ca')}
+              <small>kg</small>
+            </dd>
+          </div>
+          <div>
+            <dt>Esforç</dt>
+            <dd>{done.rpe ?? '—'}</dd>
+          </div>
+        </dl>
+      )}
 
-      <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-        <div className="progress-bar" style={{ width: `${pct}%` }} />
-        <span className="progress-label">
-          {doneSets} de {totalSets} sèries
-        </span>
-      </div>
+      {started && !done && (
+        <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+          <div className="progress-bar" style={{ width: `${pct}%` }} />
+          <span className="progress-label">
+            {doneSets} de {totalSets} sèries
+          </span>
+        </div>
+      )}
 
-      <ol className="exercises">
+      <ol className="exercises" ref={listRef}>
         {session.prescriptions.map((p, i) => {
           const mine = setsOf(p.id)
           const complete = mine.length >= p.sets
-          const isActive = p.id === active?.id
+          const isActive = p.id === activeId
           const sug = complete && p.track !== 'time' ? suggestNext(p, sets) : null
           const best = Math.max(0, ...mine.map((s) => epley1RM(s.loadKg ?? 0, s.reps ?? 0) ?? 0))
           const newBlock = i === 0 || session.prescriptions[i - 1].block !== p.block
+          const history = done ? doneSetsOf(p.exercise.id) : []
+          const timed = p.track === 'time'
           return (
-            <li key={p.id} className="ex-wrap">
+            <li key={p.id} className="ex-wrap" data-pid={p.id}>
               {newBlock && <h2 className="block-head">{BLOCK_LABEL[p.block]}</h2>}
-              <div className={`ex ${isActive ? 'active' : ''} ${complete ? 'complete' : ''}`}>
-                <button type="button" className="ex-head" onClick={() => setActiveId(p.id)} aria-expanded={isActive}>
+              <div className={`ex ${isActive ? 'active' : ''} ${complete ? 'complete' : ''} ${started ? '' : 'preview'}`}>
+                <button type="button" className="ex-head" onClick={() => setActiveId(isActive && !started ? null : p.id)} aria-expanded={isActive}>
                   <span className="ex-num">{complete ? '✓' : i + 1}</span>
                   <span className="ex-title">
                     <strong>{p.exercise.name}</strong>
                     <Meta parts={prescriptionLabel(p)} />
                   </span>
-                  <span className="ex-count">
-                    {Math.min(mine.length, p.sets)}/{p.sets}
-                  </span>
+                  {started ? (
+                    <span className="ex-count">
+                      {Math.min(mine.length, p.sets)}/{p.sets}
+                    </span>
+                  ) : (
+                    <span className="ex-chev" aria-hidden="true">
+                      {isActive ? '−' : '+'}
+                    </span>
+                  )}
                 </button>
 
                 {isActive && (
                   <div className="ex-body">
+                    <ExerciseMedia exerciseId={p.exercise.id} />
                     <p className="cue">{p.exercise.cue}</p>
                     {p.note && <p className="muted small">{p.note}</p>}
-                    {p.track === 'load_reps' && !complete && (
+
+                    {done && history.length > 0 && (
+                      <ul className="done-sets">
+                        {history.map((s, k) => (
+                          <li key={s.id}>
+                            <span className="set-n">{k + 1}</span> {setLabel(s)}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {started && p.track === 'load_reps' && !complete && (
                       <p className="advice">
                         {p.loadKg
                           ? `Càrrega suggerida: ${fmtKg(p.loadKg)} kg. ${advice[p.id] ?? ''}`
@@ -300,27 +413,14 @@ export function Today({ session, advice, week, syncLabel, onChipClick, alternati
                       </ul>
                     )}
 
-                    {!complete && (
+                    {started && !complete && (
                       <>
                         <div className="entry">
-                          {p.track === 'time' ? (
+                          {timed ? (
                             isLong(p) ? (
-                              <Stepper
-                                label="Temps"
-                                unit="min"
-                                value={Math.round(entry.duration / 60)}
-                                step={1}
-                                min={1}
-                                onChange={(v) => setEntry({ ...entry, duration: v * 60 })}
-                              />
+                              <Stepper label="Temps" unit="min" value={Math.round(entry.duration / 60)} step={1} min={1} onChange={(v) => setEntry({ ...entry, duration: v * 60 })} />
                             ) : (
-                              <Stepper
-                                label="Temps"
-                                unit="s"
-                                value={entry.duration}
-                                step={5}
-                                onChange={(v) => setEntry({ ...entry, duration: v })}
-                              />
+                              <Stepper label="Temps" unit="s" value={entry.duration} step={5} min={5} onChange={(v) => setEntry({ ...entry, duration: v })} />
                             )
                           ) : (
                             <>
@@ -337,30 +437,19 @@ export function Today({ session, advice, week, syncLabel, onChipClick, alternati
                                   {needsBar.has(p.exercise.id) && <Plates totalKg={entry.load} />}
                                 </div>
                               )}
-                              <Stepper
-                                label="Repeticions"
-                                value={entry.reps}
-                                step={1}
-                                max={100}
-                                onChange={(v) => setEntry({ ...entry, reps: v })}
-                              />
+                              <Stepper label="Repeticions" value={entry.reps} step={1} max={100} onChange={(v) => setEntry({ ...entry, reps: v })} />
                             </>
                           )}
                         </div>
 
-                        {p.rirTarget != null && p.track !== 'time' && (
+                        {p.rirTarget != null && !timed && (
                           <fieldset className="rir">
                             <legend>
                               Repeticions en reserva <small>(quantes més n’hauries pogut fer)</small>
                             </legend>
                             <div className="chips">
                               {[0, 1, 2, 3, 4].map((r) => (
-                                <button
-                                  key={r}
-                                  type="button"
-                                  className={`chip ${entry.rir === r ? 'on' : ''}`}
-                                  onClick={() => setEntry({ ...entry, rir: r })}
-                                >
+                                <button key={r} type="button" className={`chip ${entry.rir === r ? 'on' : ''}`} onClick={() => setEntry({ ...entry, rir: r })}>
                                   {r === 4 ? '4+' : r}
                                 </button>
                               ))}
@@ -368,31 +457,44 @@ export function Today({ session, advice, week, syncLabel, onChipClick, alternati
                           </fieldset>
                         )}
 
-                        <button type="button" className="btn primary block big" onClick={register}>
-                          {p.track === 'time' && p.sets === 1 ? 'Fet' : `Registra la sèrie ${mine.length + 1}`}
-                        </button>
+                        {timed ? (
+                          <>
+                            <button type="button" className="btn primary block big" onClick={() => setTiming(true)}>
+                              Inicia el temporitzador ({fmtDur(entry.duration)})
+                            </button>
+                            <button type="button" className="link" onClick={() => register()}>
+                              Registra-la sense temporitzador
+                            </button>
+                          </>
+                        ) : (
+                          <button type="button" className="btn primary block big" onClick={() => register()}>
+                            Registra la sèrie {mine.length + 1}
+                          </button>
+                        )}
                       </>
                     )}
 
-                    {complete && (
+                    {started && complete && (
                       <div className="ex-result">
                         {sug && <p className={`sug ${sug.kind}`}>{sug.text}</p>}
                         {best > 0 && <p className="muted">1RM estimat: {fmtKg(best)} kg</p>}
                       </div>
                     )}
 
-                    <div className="ex-links">
-                      {mine.length > 0 && (
-                        <button type="button" className="link" onClick={undo}>
-                          Desfés l’última sèrie
-                        </button>
-                      )}
-                      {mine.length === 0 && alternatives(p).length > 0 && (
-                        <button type="button" className="link" onClick={() => setSwapping(p)}>
-                          No puc o no vull fer aquest exercici
-                        </button>
-                      )}
-                    </div>
+                    {started && (
+                      <div className="ex-links">
+                        {mine.length > 0 && (
+                          <button type="button" className="link" onClick={undo}>
+                            Desfés l’última sèrie
+                          </button>
+                        )}
+                        {mine.length === 0 && alternatives(p).length > 0 && (
+                          <button type="button" className="link" onClick={() => setSwapping(p)}>
+                            No puc o no vull fer aquest exercici
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -401,24 +503,48 @@ export function Today({ session, advice, week, syncLabel, onChipClick, alternati
         })}
       </ol>
 
-      <div className="finish-bar">
-        <button
-          type="button"
-          className={`btn block ${doneSets === totalSets ? 'primary' : 'ghost'}`}
-          onClick={() => setFinishing(true)}
-          disabled={doneSets === 0}
-        >
-          Acaba l’entrenament
-        </button>
-      </div>
+      {!done && (
+        <div className="finish-bar">
+          {!started ? (
+            <button type="button" className="btn primary block big" onClick={start}>
+              {isNext ? 'Comença la sessió' : 'Fes aquesta sessió ara'}
+            </button>
+          ) : (
+            <div className="finish-row">
+              {doneSets === 0 ? (
+                <button type="button" className="btn ghost" onClick={discard}>
+                  Cancel·la
+                </button>
+              ) : null}
+              <button type="button" className={`btn block ${doneSets === totalSets ? 'primary' : 'ghost'}`} onClick={() => setFinishing(true)} disabled={doneSets === 0}>
+                Acaba l’entrenament
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {rest && (
         <RestTimer
           endAt={rest.endAt}
           totalS={rest.totalS}
           nextLabel={rest.next}
+          nextExerciseId={rest.nextId}
           onAdd={(s) => setRest({ ...rest, endAt: rest.endAt + s * 1000, totalS: rest.totalS + s })}
           onDone={() => setRest(null)}
+        />
+      )}
+
+      {timing && active && (
+        <WorkTimer
+          exerciseId={active.exercise.id}
+          label={`Sèrie ${setsOf(active.id).length + 1} de ${active.sets}`}
+          targetS={entry.duration || active.durationS || 30}
+          onCancel={() => setTiming(false)}
+          onDone={(secs) => {
+            setTiming(false)
+            register(secs)
+          }}
         />
       )}
 
@@ -434,7 +560,7 @@ export function Today({ session, advice, week, syncLabel, onChipClick, alternati
         />
       )}
 
-      {finishing && (
+      {finishing && draft && (
         <FinishSheet
           incomplete={doneSets < totalSets}
           onCancel={() => setFinishing(false)}
